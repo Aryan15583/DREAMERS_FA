@@ -43,7 +43,7 @@ ADMIN_USER=coach ADMIN_PASSWORD='a-strong-password' npm start
 
 - Club story, contact details and footer: `public/index.html` (and the footer in `public/register.html`)
 - Colours: CSS variables at the top of `public/css/style.css`
-- Crest/logo: `public/img/crest.svg` (replace with your real crest)
+- Crest/logo: `public/img/logo.webp` (full size) and `public/img/logo-sm.webp` (header)
 - Currency symbol: `public/js/common.js` (`CLUB.currency`)
 
 ## Deploying
