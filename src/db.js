@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS players (
   jersey_number INTEGER,
   standard TEXT,
   blood_group TEXT,
+  registered_via TEXT,
   joined_on TEXT,
   notes TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -101,6 +102,10 @@ if (!locCols.includes('map_url')) db.exec('ALTER TABLE locations ADD COLUMN map_
 const playerCols = db.prepare('PRAGMA table_info(players)').all().map((c) => c.name);
 if (!playerCols.includes('standard')) db.exec('ALTER TABLE players ADD COLUMN standard TEXT');      // school class, e.g. "5th"
 if (!playerCols.includes('blood_group')) db.exec('ALTER TABLE players ADD COLUMN blood_group TEXT');
+if (!playerCols.includes('registered_via')) { // 'form' = parent used the registration form, 'admin' = added by the club
+  db.exec('ALTER TABLE players ADD COLUMN registered_via TEXT');
+  db.exec("UPDATE players SET registered_via = CASE WHEN status = 'pending' THEN 'form' ELSE 'admin' END");
+}
 if (!locCols.includes('schedule')) db.exec('ALTER TABLE locations ADD COLUMN schedule TEXT'); // JSON list of training sessions
 
 function hashPassword(pw) {

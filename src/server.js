@@ -168,6 +168,8 @@ function filterPlayers(list, q) {
     (!q.age_group || p.age_group === q.age_group) &&
     (!q.status || p.status === q.status) &&
     (!q.fee || p.fee_status === q.fee) &&
+    (!q.source || p.registered_via === q.source) &&
+    (!q.position || p.position === q.position) &&
     (!q.q || `${p.first_name} ${p.last_name} ${p.phone || ''} ${p.guardian_name || ''} ${p.guardian_phone || ''}`
       .toLowerCase().includes(String(q.q).toLowerCase()))
   );
@@ -206,8 +208,8 @@ app.post('/api/register', wrap((req, res) => {
   if (!req.body.consent) errors.push('Please accept the consent checkbox');
   if (isDate(p.dob) && ageOn(p.dob) < 18 && !p.guardian_name) errors.push('Guardian name is required for players under 18');
   if (errors.length) return res.status(400).json({ error: errors.join('. ') });
-  const r = db.prepare(`INSERT INTO players(first_name,last_name,dob,gender,location_id,position,standard,blood_group,phone,email,guardian_name,guardian_phone,address,notes,status)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')`).run(
+  const r = db.prepare(`INSERT INTO players(first_name,last_name,dob,gender,location_id,position,standard,blood_group,phone,email,guardian_name,guardian_phone,address,notes,status,registered_via)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending','form')`).run(
     p.first_name, p.last_name, p.dob, p.gender, p.location_id, p.position, p.standard, p.blood_group, p.phone, p.email,
     p.guardian_name, p.guardian_phone, p.address, p.notes);
   res.json({ ok: true, id: Number(r.lastInsertRowid) });
@@ -292,7 +294,7 @@ admin.get('/players.csv', wrap((req, res) => {
   const period = isPeriod(req.query.period) ? req.query.period : currentPeriod();
   const rows = filterPlayers(listPlayers(period), req.query);
   const cols = ['id', 'first_name', 'last_name', 'dob', 'age', 'age_group', 'standard', 'blood_group', 'gender', 'location_name', 'position', 'jersey_number',
-    'phone', 'email', 'guardian_name', 'guardian_phone', 'address', 'status', 'fee', 'period', 'fee_status', 'paid_on', 'joined_on'];
+    'phone', 'email', 'guardian_name', 'guardian_phone', 'address', 'notes', 'status', 'registered_via', 'created_at', 'fee', 'period', 'fee_status', 'paid_on', 'joined_on'];
   const esc = (v) => {
     let s = v == null ? '' : String(v);
     if (/^[=+\-@]/.test(s)) s = "'" + s; // avoid spreadsheet formula injection
@@ -323,7 +325,7 @@ admin.post('/players', wrap((req, res) => {
   const { p, errors } = playerFields(req.body, { admin: true });
   if (errors.length) return res.status(400).json({ error: errors.join('. ') });
   if (!p.joined_on && p.status === 'active') p.joined_on = new Date().toISOString().slice(0, 10);
-  const r = db.prepare(`INSERT INTO players(${PLAYER_COLS.join(',')}) VALUES(${PLAYER_COLS.map(() => '?').join(',')})`)
+  const r = db.prepare(`INSERT INTO players(${PLAYER_COLS.join(',')}, registered_via) VALUES(${PLAYER_COLS.map(() => '?').join(',')}, 'admin')`)
     .run(...PLAYER_COLS.map((c) => p[c]));
   res.json({ ok: true, id: Number(r.lastInsertRowid) });
 }));

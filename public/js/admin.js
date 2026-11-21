@@ -5,6 +5,7 @@ const view = () => $('#view');
 const feeText = (n) => (n > 0 ? money(n) : '—'); // fees are optional; show a dash when none is set
 
 function toast(msg, isError) {
+  $$('.toast').forEach((x) => x.remove()); // show one message at a time
   const t = document.createElement('div');
   t.className = 'toast' + (isError ? ' error' : '');
   t.textContent = msg;
@@ -51,7 +52,7 @@ async function start(username) {
   $('#who').textContent = username;
   [state.locations, state.wa] = await Promise.all([api('/api/locations'), api('/api/admin/settings')]);
   const v = location.hash.slice(1);
-  go(['dashboard', 'players', 'fees', 'locations', 'news', 'fixtures', 'settings'].includes(v) ? v : 'dashboard');
+  go(['dashboard', 'registrations', 'players', 'fees', 'locations', 'news', 'fixtures', 'settings'].includes(v) ? v : 'dashboard');
 }
 $$('.sidebar .nav-item').forEach((b) => b.addEventListener('click', () => { go(b.dataset.view); $('.sidebar').classList.remove('open'); }));
 
@@ -59,12 +60,12 @@ function go(v) {
   state.view = v;
   history.replaceState(null, '', '#' + v);
   $$('.sidebar .nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
-  ({ dashboard, players, fees, locations: locationsView, news: newsView, fixtures: fixturesView, settings })[v]();
+  ({ dashboard, registrations, players, fees, locations: locationsView, news: newsView, fixtures: fixturesView, settings })[v]();
 }
 const refresh = () => go(state.view);
 
 async function updatePendingBadge() {
-  const list = await api('/api/admin/players?status=pending');
+  const list = await api('/api/admin/players?status=pending&source=form');
   const b = $('#pending-count');
   b.hidden = !list.length; b.textContent = list.length;
 }
@@ -104,7 +105,7 @@ async function dashboard() {
         </div>
       </div>
       <div class="panel">
-        <div class="panel-head"><h3>Latest registrations</h3><button class="btn btn-sm btn-primary" onclick="state.filters={status:'pending'};go('players')">Review pending</button></div>
+        <div class="panel-head"><h3>Latest registrations</h3><button class="btn btn-sm btn-primary" onclick="state.regFilters={status:'pending'};go('registrations')">Review registrations</button></div>
         <div class="table-wrap"><table><tbody>${d.recent.map(playerRow).join('') || '<tr><td class="muted">No players yet</td></tr>'}</tbody></table></div>
       </div>`;
     $('#period').addEventListener('change', (e) => { if (e.target.value) { state.period = e.target.value; dashboard(); } });
@@ -121,14 +122,103 @@ function playerRow(p) {
     <td><div>${esc(p.phone || p.guardian_phone || '—')}</div><div class="sub">${esc(p.guardian_name || '')}</div></td>
     <td><span class="pill ${p.status}">${p.status}</span></td>
     <td><span class="pill ${p.fee_status}">${p.fee_status === 'n/a' ? '—' : p.fee_status}</span> ${p.fee > 0 ? `<span class="sub">${money(p.fee)}</span>` : ''}</td>
+    <td class="num">${rowActions(p)}</td>
   </tr>`;
 }
-function bindPlayerRows() {
-  $$('tr.clickable[data-id]', view()).forEach((tr) => tr.addEventListener('click', () => playerModal(tr.dataset.id)));
+// Edit / Delete (and Approve for new registrations) buttons used in every player table
+function rowActions(p) {
+  return `<div class="row-actions">
+    ${p.status === 'pending' ? `<button class="btn btn-sm btn-primary" data-act="approve" data-id="${p.id}">✓ Approve</button>` : ''}
+    <button class="btn btn-sm btn-outline" style="color:var(--navy)" data-act="edit" data-id="${p.id}">✎ Edit</button>
+    <button class="btn btn-sm btn-outline" style="color:var(--bad)" data-act="remove" data-id="${p.id}" data-name="${esc(p.first_name)} ${esc(p.last_name)}">Delete</button>
+  </div>`;
+}
+function bindPlayerRows(scope = view()) {
+  $$('tr.clickable[data-id]', scope).forEach((tr) => tr.addEventListener('click', (e) => { if (!e.target.closest('button, a')) playerModal(tr.dataset.id); }));
+  $$('[data-act]', scope).forEach((b) => b.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const id = b.dataset.id;
+    if (b.dataset.act === 'edit') return editPlayer(id);
+    if (b.dataset.act === 'remove') return removePlayer(id, b.dataset.name);
+    if (b.dataset.act === 'approve') {
+      b.disabled = true;
+      await guarded(async () => { await api(`/api/admin/players/${id}`, { method: 'PUT', body: { status: 'active' } }); toast('Approved — player is now active'); refresh(); });
+    }
+  }));
+}
+async function editPlayer(id) {
+  await guarded(async () => {
+    const p = await api('/api/admin/players/' + id);
+    openModal(`Edit · ${p.first_name} ${p.last_name}`, playerFormHtml(p));
+    bindPlayerForm(p);
+  });
+}
+async function removePlayer(id, name) {
+  if (!confirm(`Delete ${name}? This removes their registration, details and payment records. It cannot be undone.`)) return;
+  await guarded(async () => { await api(`/api/admin/players/${id}`, { method: 'DELETE' }); toast(`${name} deleted`); refresh(); });
 }
 function playerQuery() {
   const f = { ...state.filters, period: state.period };
   return new URLSearchParams(Object.entries(f).filter(([, v]) => v)).toString();
+}
+
+// ---------- registrations (everything parents submit on /register) ----------
+async function registrations() {
+  const f = state.regFilters || (state.regFilters = { status: 'pending' });
+  const formUrl = location.origin + '/register';
+  view().innerHTML = `
+    <div class="page-head"><h1>Registrations</h1>
+      <div class="actions">
+        <button class="btn btn-sm btn-outline" style="color:var(--navy)" id="copy-link">🔗 Copy form link</button>
+        <a class="btn btn-sm btn-wa" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(`Dreamers Football Association — Player Registration Form ⚽\nPlease fill in your child's details here: ${formUrl}`)}">${waIcon} Share form</a>
+        <a class="btn btn-sm btn-outline" style="color:var(--navy)" id="reg-csv">⬇ Export</a>
+      </div>
+    </div>
+    <p class="muted" style="margin-top:-8px">Every form parents submit at <a href="/register" target="_blank">${esc(formUrl)}</a> appears here automatically. Approve to add the player to the squad.</p>
+    <div class="panel">
+      <form class="filters" id="reg-filters">
+        <select name="status">${opts([['pending', 'New (waiting for approval)'], ['active', 'Approved'], ['inactive', 'Inactive']], f.status, 'All registrations')}</select>
+        <select name="location">${locOpts(f.location, 'All centres')}</select>
+        <select name="position">${opts(POSITIONS.map((v) => [v, POSITION_LABELS[v] || v]), f.position, 'All positions')}</select>
+        <input type="search" name="q" placeholder="Search name or phone…" value="${esc(f.q || '')}" />
+      </form>
+      <div class="table-wrap"><table class="reg-table sticky-actions">
+        <thead><tr><th>Submitted</th><th>Player</th><th>Birth date · Age</th><th>Std</th><th>Blood</th><th>Position</th><th>Centre</th><th>Parent / guardian</th><th>Medical</th><th>Status</th><th class="num">Actions</th></tr></thead>
+        <tbody id="reg-rows"><tr><td colspan="11" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+      <div class="panel-body muted" id="reg-count" style="font-size:13px"></div>
+    </div>`;
+  $('#copy-link').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(formUrl); toast('Form link copied'); } catch { prompt('Copy this link:', formUrl); }
+  });
+  const load = () => guarded(async () => {
+    const q = new URLSearchParams({ source: 'form', ...Object.fromEntries(Object.entries(f).filter(([, v]) => v)) });
+    $('#reg-csv').href = '/api/admin/players.csv?' + q;
+    const list = (await api('/api/admin/players?' + q)).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    $('#reg-rows').innerHTML = list.map((p) => `<tr class="clickable" data-id="${p.id}">
+      <td><div>${fmtDate(fromSqlUtc(p.created_at), { day: 'numeric', month: 'short' })}</div><div class="sub">${fromSqlUtc(p.created_at).toLocaleTimeString(CLUB.locale, { hour: '2-digit', minute: '2-digit' })}</div></td>
+      <td><div class="name">${esc(p.first_name)} ${esc(p.last_name)}</div><div class="sub">${esc(p.gender || '')}</div></td>
+      <td><div>${fmtDate(p.dob)}</div><div class="sub">${p.age} yrs · ${p.age_group}</div></td>
+      <td>${esc(p.standard || '—')}</td>
+      <td>${p.blood_group ? `<span class="pill unpaid">${esc(BLOOD_LABELS[p.blood_group] || p.blood_group)}</span>` : '—'}</td>
+      <td>${esc(POSITION_LABELS[p.position] || p.position || '—')}</td>
+      <td>${esc(p.location_name || '—')}</td>
+      <td><div>${esc(p.guardian_name || '—')}</div><div class="sub">${esc(p.guardian_phone || p.phone || '')}</div></td>
+      <td class="clip" title="${esc(p.notes || '')}">${esc(p.notes || '—')}</td>
+      <td><span class="pill ${p.status}">${p.status === 'pending' ? 'new' : p.status === 'active' ? 'approved' : p.status}</span></td>
+      <td class="num">${rowActions(p)}</td>
+    </tr>`).join('') || '<tr><td colspan="11" class="muted">No registrations here yet. Share the form link with parents to get started.</td></tr>';
+    $('#reg-count').textContent = `${list.length} registration${list.length === 1 ? '' : 's'}`;
+    bindPlayerRows();
+    updatePendingBadge();
+  });
+  let t;
+  $('#reg-filters').addEventListener('input', (e) => {
+    Object.assign(f, formData($('#reg-filters')));
+    clearTimeout(t); t = setTimeout(load, e.target.type === 'search' ? 250 : 0);
+  });
+  $('#reg-filters').addEventListener('submit', (e) => e.preventDefault());
+  load();
 }
 
 async function players() {
@@ -149,16 +239,16 @@ async function players() {
         <select name="fee">${opts([['paid', 'Paid'], ['unpaid', 'Unpaid']], f.fee, 'Any fee status')}</select>
         <input type="month" name="period" value="${state.period}" title="Fee month" />
       </form>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Player</th><th>Age</th><th>Location</th><th>Contact</th><th>Status</th><th>Fee</th></tr></thead>
-        <tbody id="player-rows"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+      <div class="table-wrap"><table class="sticky-actions">
+        <thead><tr><th>Player</th><th>Age</th><th>Location</th><th>Contact</th><th>Status</th><th>Fee</th><th class="num">Actions</th></tr></thead>
+        <tbody id="player-rows"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
       </table></div>
       <div class="panel-body muted" id="player-count" style="font-size:13px"></div>
     </div>`;
   const load = () => guarded(async () => {
     $('#csv').href = '/api/admin/players.csv?' + playerQuery();
     const list = await api('/api/admin/players?' + playerQuery());
-    $('#player-rows').innerHTML = list.map(playerRow).join('') || '<tr><td colspan="6" class="muted">No players match these filters.</td></tr>';
+    $('#player-rows').innerHTML = list.map(playerRow).join('') || '<tr><td colspan="7" class="muted">No players match these filters.</td></tr>';
     $('#player-count').textContent = `${list.length} player${list.length === 1 ? '' : 's'} · fee status for ${fmtMonth(state.period)}`;
     bindPlayerRows();
     updatePendingBadge();

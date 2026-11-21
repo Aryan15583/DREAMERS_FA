@@ -3,53 +3,87 @@
   form.standard.insertAdjacentHTML('beforeend', optionList(STANDARDS));
   form.blood_group.insertAdjacentHTML('beforeend', optionList(BLOOD_GROUPS, BLOOD_LABELS));
   form.position.insertAdjacentHTML('beforeend', optionList(POSITIONS, POSITION_LABELS));
+
+  let locs = [];
   try {
-    const locs = await api('/api/locations');
+    locs = await api('/api/locations');
     const params = new URLSearchParams(location.search);
     $('#loc-options').innerHTML = locs.map((l, i) => `
       <label class="loc-option">
         <input type="radio" name="location_id" value="${l.id}" ${params.get('location') == l.id || (locs.length === 1 && i === 0) ? 'checked' : ''} required />
         <b>${esc(l.name)}</b>
         ${l.address ? `<small>${esc(l.address)}</small>` : ''}
-        <a class="map-link" href="${esc(mapLink(l))}" target="_blank" rel="noopener" onclick="event.stopPropagation()">View on map ↗</a>
         ${(l.schedule || []).map((s) => `<small>🕒 ${esc(fmtDays(s.days))} · ${esc(fmtTimeRange(s.start, s.end))} · ${esc(s.group)}</small>`).join('')}
+        <a class="map-link" href="${esc(mapLink(l))}" target="_blank" rel="noopener">View on map ↗</a>
       </label>`).join('') || '<div class="hint">No centres available yet — please check back soon.</div>';
   } catch {
     $('#loc-options').innerHTML = '<div class="alert alert-error">Could not load centres. Please refresh the page.</div>';
   }
 
+  const age = () => (form.dob.value ? ageFromDob(form.dob.value) : null);
   form.dob.addEventListener('change', () => {
-    if (!form.dob.value) return;
-    const a = ageFromDob(form.dob.value);
-    $('#age').value = a >= 0 ? `${a} year${a === 1 ? '' : 's'}` : '';
-    $('#age-hint').textContent = a >= 0 ? `${ageGroup(a)} age group` : 'Birth date cannot be in the future';
+    const a = age();
+    $('#age').value = a != null && a >= 0 ? `${a} year${a === 1 ? '' : 's'}` : '';
+    $('#age-hint').textContent = a == null ? 'Calculated automatically.' : a >= 0 ? `${ageGroup(a)} age group` : 'Birth date cannot be in the future';
   });
+
+  // clear the red outline as soon as a field is fixed
+  const clear = (e) => { e.target.closest('label')?.classList.remove('invalid'); e.target.closest('.regform-section')?.classList.remove('invalid'); };
+  form.addEventListener('input', clear);
+  form.addEventListener('change', clear);
+
+  function check(data) {
+    const errs = [];
+    const bad = (name, msg) => {
+      errs.push(msg);
+      const el = form.elements[name];
+      const field = el instanceof RadioNodeList ? el[0]?.closest('.regform-section') : el?.closest('label');
+      field?.classList.add('invalid');
+    };
+    const a = age();
+    if (!data.first_name?.trim()) bad('first_name', 'Player first name');
+    if (!data.last_name?.trim()) bad('last_name', 'Player surname');
+    if (!data.dob) bad('dob', 'Birth date');
+    else if (a < 0) bad('dob', 'Birth date cannot be in the future');
+    if (!data.standard) bad('standard', 'Standard (class)');
+    if (!data.blood_group) bad('blood_group', 'Blood group (choose “Don’t know” if unsure)');
+    if (!data.position) bad('position', 'Playing position (choose Fresher if new)');
+    if (!data.location_id) bad('location_id', 'Training centre');
+    if ((a == null || a < 18) && !data.guardian_name?.trim()) bad('guardian_name', 'Parent / guardian name');
+    if (!data.guardian_phone?.trim() && !data.phone?.trim()) bad('guardian_phone', 'Parent mobile number');
+    else if (data.guardian_phone?.trim() && data.guardian_phone.replace(/\D/g, '').length < 10) bad('guardian_phone', 'Parent mobile number should have 10 digits');
+    if (!data.consent) bad('consent', 'Please tick the consent box');
+    return errs;
+  }
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    $$('.invalid', form).forEach((x) => x.classList.remove('invalid'));
     const data = Object.fromEntries(new FormData(form));
     data.consent = form.consent.checked;
     const alert = $('#reg-alert');
-    const errs = [];
-    if (!data.location_id) errs.push('Please choose a training centre');
-    if (!data.first_name?.trim() || !data.last_name?.trim()) errs.push('Please enter the player’s full name');
-    if (!data.dob) errs.push('Please enter the birth date');
-    if (!data.standard) errs.push('Please choose the standard (class)');
-    if (!data.blood_group) errs.push('Please choose the blood group (or “Don’t know”)');
-    if (!data.position) errs.push('Please choose a playing position (choose Fresher if new)');
-    if (!data.phone?.trim() && !data.guardian_phone?.trim()) errs.push('Please give at least one phone number');
-    if (data.dob && ageFromDob(data.dob) < 18 && !data.guardian_name?.trim()) errs.push('Guardian name is required for players under 18');
-    if (!data.consent) errs.push('Please tick the consent box');
-    if (errs.length) { alert.innerHTML = `<div class="alert alert-error">${errs.map(esc).join('<br>')}</div>`; alert.scrollIntoView({ block: 'center' }); return; }
+    const errs = check(data);
+    if (errs.length) {
+      alert.innerHTML = `<div class="alert alert-error"><b>Please complete:</b><ul>${errs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>`;
+      alert.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      return;
+    }
     const btn = form.querySelector('button[type=submit]');
     btn.disabled = true; btn.textContent = 'Submitting…';
     try {
       await api('/api/register', { method: 'POST', body: data });
+      const loc = locs.find((l) => String(l.id) === String(data.location_id));
+      const row = (k, v) => (v ? `<div><span>${k}</span><b>${esc(v)}</b></div>` : '');
+      $('#reg-summary').innerHTML =
+        row('Player', `${data.first_name} ${data.last_name}`) + row('Birth date', fmtDate(data.dob)) +
+        row('Age', `${age()} years (${ageGroup(age())})`) + row('Standard', data.standard) +
+        row('Blood group', BLOOD_LABELS[data.blood_group] || data.blood_group) + row('Position', POSITION_LABELS[data.position] || data.position) +
+        row('Centre', loc?.name) + row('Parent', data.guardian_name) + row('Mobile', data.guardian_phone || data.phone);
       form.hidden = true; $('#reg-success').hidden = false;
-      $('#reg-success').scrollIntoView({ block: 'center' });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
       alert.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
-      alert.scrollIntoView({ block: 'center' });
+      alert.scrollIntoView({ block: 'start' });
     } finally { btn.disabled = false; btn.textContent = 'Submit registration'; }
   });
 })();

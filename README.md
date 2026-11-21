@@ -6,9 +6,10 @@ Official website for **Dreamers Football Association (Dreamers FA)**, with onlin
 
 **Public website** (`/`)
 - Home page with hero, club stats, news, fixtures & results, age-group teams, training centres with fees, about section
-- Online **player registration** (`/register`): parents choose a training centre and fill in name, birth date (age and age group are calculated automatically), standard (class), blood group and playing position (**Fresher** for new players). These are required, along with guardian details for under-18s
+- Standalone **player registration form** (`/register`), a page on its own to share with parents: parents choose a training centre and fill in name, birth date (age and age group are calculated automatically), standard (class), blood group and playing position (**Fresher** for new players). These are required, along with guardian details for under-18s
 
 **Club admin** (`/admin`)
+- **Registrations**: every form parents submit appears here automatically, with all details in one table (submitted date, player, birth date and age, standard, blood group, position, centre, parent and mobile, medical notes). Each row has **Approve**, **Edit** and **Delete**. Use *Copy form link* / *Share form* to send the form to parents on WhatsApp, and *Export* to get a spreadsheet
 - **Dashboard**: active / pending players, paid vs unpaid for any month, money collected and outstanding, breakdown by location and age group
 - **Players**: search and filter by location, age group (U8–U18, Senior), status and fee status; add, edit, approve and delete players; export to CSV (opens in Excel)
 - **Fees**: pick a month and mark each player **paid / unpaid** with one click; full payment history per player (amount, date, Cash/UPI/Bank…); per-player fee override for discounts or scholarships

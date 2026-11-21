@@ -321,3 +321,44 @@ td .sub, .list-item .sub { font-size: 12px; color: var(--muted); }
 .day-pick input:checked + span { background: var(--blue); border-color: var(--blue); color: #fff; }
 .day-pick input:focus-visible + span { box-shadow: 0 0 0 3px rgba(23,71,181,.25); }
 .readonly, input[readonly] { background: var(--bg); color: var(--navy); font-weight: 600; }
+
+/* ---------- standalone registration form ---------- */
+.regform-page { background: linear-gradient(180deg, var(--navy) 0, var(--navy) 260px, var(--bg) 260px); min-height: 100vh; }
+.regform { width: min(820px, 100% - 24px); margin: 0 auto; padding: 28px 0 40px; }
+.regform-head { display: flex; align-items: center; gap: 20px; color: #fff; margin-bottom: 20px; }
+.regform-head img { width: 110px; height: 110px; flex: none; border-radius: 50%; filter: drop-shadow(0 10px 20px rgba(0,0,0,.35)); }
+.regform-club { font: 700 14px var(--body); letter-spacing: .16em; text-transform: uppercase; color: var(--gold); }
+.regform-head h1 { font-size: clamp(34px, 6vw, 54px); margin: 4px 0 6px; }
+.regform-head p { margin: 0; color: #c9d6f2; font-size: 14px; }
+.regform-head .req { color: #ff9a9a; }
+#reg-form, .regform .success { background: #fff; border-radius: 16px; box-shadow: var(--shadow); padding: 8px 28px 28px; border-top: 5px solid var(--gold); }
+.regform .success { padding: 32px 28px; }
+.regform-section { padding: 22px 0; border-bottom: 1px solid var(--line); }
+.regform-section:last-of-type { border-bottom: 0; }
+.regform-section h2 { display: flex; align-items: center; gap: 10px; font-size: 24px; color: var(--navy); margin: 0 0 16px; }
+.regform-section .step { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--navy); color: #fff; font: 700 16px var(--body); flex: none; }
+.regform-submit { width: 100%; padding: 16px; font-size: 17px; margin-top: 8px; }
+.regform-foot { text-align: center; color: var(--muted); font-size: 13px; margin-top: 20px; }
+.regform #reg-alert ul { margin: 6px 0 0; padding-left: 20px; }
+label.invalid input, label.invalid select, label.invalid textarea { border-color: var(--bad); background: #fffafa; }
+label.invalid > span:first-child, label.invalid.check { color: var(--bad); }
+.regform-section.invalid .loc-option { border-color: var(--bad); }
+.reg-summary { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; text-align: left; margin: 20px 0; }
+.reg-summary div { background: #fff; padding: 10px 14px; display: flex; flex-direction: column; }
+.reg-summary span { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.reg-summary b { color: var(--navy); }
+@media (max-width: 640px) {
+  .regform-page { background: linear-gradient(180deg, var(--navy) 0, var(--navy) 200px, var(--bg) 200px); }
+  .regform-head { gap: 14px; }
+  .regform-head img { width: 72px; height: 72px; }
+  .regform-head p { display: none; }
+  #reg-form { padding: 4px 16px 20px; }
+}
+
+.row-actions { display: inline-flex; gap: 6px; flex-wrap: nowrap; }
+.reg-table td { white-space: nowrap; }
+.reg-table td.clip { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.sticky-actions th:last-child, .sticky-actions td:last-child { position: sticky; right: 0; background: #fff; box-shadow: -8px 0 12px -8px rgba(10,31,68,.18); }
+.sticky-actions th:last-child { background: #fafbfd; }
+.sticky-actions tbody tr.clickable:hover td:last-child { background: #f8faff; }
+.reg-table td.clip { max-width: 140px; }
