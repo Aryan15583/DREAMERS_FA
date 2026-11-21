@@ -134,9 +134,9 @@ if (!db.prepare('SELECT 1 FROM admins LIMIT 1').get()) {
 
 // The club's training centres (fees and timings are set in Admin > Locations)
 const CLUB_LOCATIONS = [
-  ['Bhakshala', 'Dombivali (W)'],
-  ["St Joseph's CBSC Turf", null],
-  ['Legends Arena Turf', 'Dombivali (E)'],
+  ['Bhakshala', 'Dombivli (W)'],
+  ["St Joseph's CBSC Turf", 'Near Regency, Dombivli (E)'],
+  ['Legends Arena Turf', 'Dombivli (E)'],
 ];
 
 // One-time: replace the original placeholder centres with the club's real ones (keeps player links)
@@ -148,6 +148,15 @@ if (!getSetting('real_locations_v1')) {
   rows.forEach((r, i) => { if (CLUB_LOCATIONS[i]) upd.run(CLUB_LOCATIONS[i][0], CLUB_LOCATIONS[i][1], r.id); });
   db.prepare("UPDATE fixtures SET venue = 'Bhakshala, Dombivali (W)' WHERE venue = 'Main Ground'").run();
   setSetting('real_locations_v1', '1');
+}
+
+// One-time: St Joseph's address and "Dombivli" spelling (only touches values that were never edited)
+if (!getSetting('real_locations_v2')) {
+  db.prepare("UPDATE locations SET address = 'Near Regency, Dombivli (E)' WHERE name = 'St Joseph''s CBSC Turf' AND address IS NULL").run();
+  db.prepare("UPDATE locations SET address = 'Dombivli (W)' WHERE address = 'Dombivali (W)'").run();
+  db.prepare("UPDATE locations SET address = 'Dombivli (E)' WHERE address = 'Dombivali (E)'").run();
+  db.prepare("UPDATE fixtures SET venue = 'Bhakshala, Dombivli (W)' WHERE venue = 'Bhakshala, Dombivali (W)'").run();
+  setSetting('real_locations_v2', '1');
 }
 
 if (!getSetting('seeded') && process.env.NO_SAMPLE_DATA !== '1') {
@@ -163,7 +172,7 @@ if (!getSetting('seeded') && process.env.NO_SAMPLE_DATA !== '1') {
 
   const fx = db.prepare('INSERT INTO fixtures(team, opponent, match_date, venue, home_away, competition) VALUES(?, ?, ?, ?, ?, ?)');
   const d = (n) => { const t = new Date(); t.setDate(t.getDate() + n); return t.toISOString().slice(0, 16); };
-  fx.run('Senior', 'City United', d(7), 'Bhakshala, Dombivali (W)', 'Home', 'League');
+  fx.run('Senior', 'City United', d(7), 'Bhakshala, Dombivli (W)', 'Home', 'League');
   fx.run('U14', 'Rising Stars Academy', d(10), 'Away ground', 'Away', 'Youth Cup');
 
   setSetting('seeded', '1');
