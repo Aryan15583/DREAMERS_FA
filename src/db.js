@@ -132,11 +132,27 @@ if (!db.prepare('SELECT 1 FROM admins LIMIT 1').get()) {
   console.log(`[setup] Created admin user "${user}"${process.env.ADMIN_PASSWORD ? '' : ' with default password "dreamers123" — change it in Admin > Settings'}`);
 }
 
+// The club's training centres (fees and timings are set in Admin > Locations)
+const CLUB_LOCATIONS = [
+  ['Bhakshala', 'Dombivali (W)'],
+  ["St Joseph's CBSC Turf", null],
+  ['Legends Arena Turf', 'Dombivali (E)'],
+];
+
+// One-time: replace the original placeholder centres with the club's real ones (keeps player links)
+if (!getSetting('real_locations_v1')) {
+  const placeholders = ['Main Ground', 'North Centre', 'South Centre'];
+  const rows = db.prepare("SELECT id, name FROM locations WHERE address = 'Update this address in Admin > Locations' ORDER BY id").all()
+    .filter((r) => placeholders.includes(r.name));
+  const upd = db.prepare('UPDATE locations SET name = ?, address = ?, training_days = NULL, monthly_fee = 0 WHERE id = ?');
+  rows.forEach((r, i) => { if (CLUB_LOCATIONS[i]) upd.run(CLUB_LOCATIONS[i][0], CLUB_LOCATIONS[i][1], r.id); });
+  db.prepare("UPDATE fixtures SET venue = 'Bhakshala, Dombivali (W)' WHERE venue = 'Main Ground'").run();
+  setSetting('real_locations_v1', '1');
+}
+
 if (!getSetting('seeded') && process.env.NO_SAMPLE_DATA !== '1') {
   const loc = db.prepare('INSERT INTO locations(name, address, training_days, monthly_fee) VALUES(?, ?, ?, ?)');
-  loc.run('Main Ground', 'Update this address in Admin > Locations', 'Mon, Wed, Fri · 5–7 PM', 1500);
-  loc.run('North Centre', 'Update this address in Admin > Locations', 'Tue, Thu · 5–7 PM', 1200);
-  loc.run('South Centre', 'Update this address in Admin > Locations', 'Sat, Sun · 7–9 AM', 1000);
+  for (const [name, address] of CLUB_LOCATIONS) loc.run(name, address, null, 0);
 
   const news = db.prepare('INSERT INTO news(title, summary, body, published_at) VALUES(?, ?, ?, ?)');
   const today = new Date().toISOString().slice(0, 10);
@@ -147,7 +163,7 @@ if (!getSetting('seeded') && process.env.NO_SAMPLE_DATA !== '1') {
 
   const fx = db.prepare('INSERT INTO fixtures(team, opponent, match_date, venue, home_away, competition) VALUES(?, ?, ?, ?, ?, ?)');
   const d = (n) => { const t = new Date(); t.setDate(t.getDate() + n); return t.toISOString().slice(0, 16); };
-  fx.run('Senior', 'City United', d(7), 'Main Ground', 'Home', 'League');
+  fx.run('Senior', 'City United', d(7), 'Bhakshala, Dombivali (W)', 'Home', 'League');
   fx.run('U14', 'Rising Stars Academy', d(10), 'Away ground', 'Away', 'Youth Cup');
 
   setSetting('seeded', '1');

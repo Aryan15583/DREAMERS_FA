@@ -7,8 +7,9 @@
       <label class="loc-option">
         <input type="radio" name="location_id" value="${l.id}" ${params.get('location') == l.id || (locs.length === 1 && i === 0) ? 'checked' : ''} required />
         <b>${esc(l.name)}</b>
-        <small>${esc(l.training_days || '')}</small>
-        <small>${money(l.monthly_fee)} / month</small>
+        ${l.address ? `<small>${esc(l.address)}</small>` : ''}
+        ${l.training_days ? `<small>${esc(l.training_days)}</small>` : ''}
+        ${l.monthly_fee > 0 ? `<small>${money(l.monthly_fee)} / month</small>` : ''}
       </label>`).join('') || '<div class="hint">No centres available yet — please check back soon.</div>';
   } catch {
     $('#loc-options').innerHTML = '<div class="alert alert-error">Could not load centres. Please refresh the page.</div>';

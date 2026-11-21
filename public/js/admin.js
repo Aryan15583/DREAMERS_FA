@@ -316,6 +316,7 @@ function reminderStatus(p) {
 }
 // Must be called directly from a click handler so the browser allows the new tab.
 function sendReminder(p, period) {
+  if (!(p.fee > 0)) { toast(`Set the monthly fee for ${p.location_name || 'this centre'} in Locations first`, true); return false; }
   const c = reminderContact(p);
   if (!c) { toast(`No valid phone number for ${p.first_name} ${p.last_name}`, true); return false; }
   window.open(`https://wa.me/${c.number}?text=${encodeURIComponent(reminderText(p, period))}`, '_blank', 'noopener');
@@ -460,7 +461,7 @@ async function locationsView() {
     state.locations = await api('/api/locations');
     listEditor({
       title: 'Locations', label: 'location', endpoint: '/api/admin/locations', items: state.locations,
-      render: (l) => `<div class="name">${esc(l.name)}</div><div class="sub">${esc(l.address || '')} · ${esc(l.training_days || '')} · <b>${money(l.monthly_fee)}</b>/month</div>`,
+      render: (l) => `<div class="name">${esc(l.name)}</div><div class="sub">${[esc(l.address || ''), esc(l.training_days || ''), l.monthly_fee > 0 ? `<b>${money(l.monthly_fee)}</b>/month` : '<span style="color:var(--bad)">Fee not set</span>'].filter(Boolean).join(' · ')}</div>`,
       fields: (l) => `
         <label class="full"><span>Name <span class="req">*</span></span><input name="name" value="${esc(l.name)}" required></label>
         <label class="full">Address<input name="address" value="${esc(l.address)}"></label>
@@ -528,7 +529,7 @@ function settings() {
         <button class="btn btn-primary">Update password</button>
       </form></div>`;
   const waForm = $('#wa-form');
-  const sample = { first_name: 'Aarav', last_name: 'Sharma', guardian_name: 'Priya Sharma', age: 11, fee: state.locations[0]?.monthly_fee || 1500, location_name: state.locations[0]?.name || 'Main Ground' };
+  const sample = { first_name: 'Aarav', last_name: 'Sharma', guardian_name: 'Priya Sharma', age: 11, fee: state.locations[0]?.monthly_fee || 1500, location_name: state.locations[0]?.name || 'Bhakshala' };
   const preview = () => {
     const saved = state.wa; state.wa = { ...saved, wa_template: waForm.wa_template.value };
     $('#wa-preview').textContent = reminderText(sample, state.period);
