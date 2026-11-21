@@ -1,0 +1,26 @@
+{
+  "name": "dreamers-fa",
+  "version": "1.0.0",
+  "description": "Dreamers FA club website and player management",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
+    "dev": "node --watch --disable-warning=ExperimentalWarning src/server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aryan15583/DREAMERS_FA.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Aryan15583/DREAMERS_FA/issues"
+  },
+  "homepage": "https://github.com/Aryan15583/DREAMERS_FA#readme",
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "express": "^4.22.3"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "private": true
+}

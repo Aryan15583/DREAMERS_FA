@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="/img/crest.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <title>Dreamers FA — Official Website</title>
+  <meta name="description" content="Official website of Dreamers FA: news, fixtures, results, academy locations and online player registration." />
+</head>
+<body>
+  <div class="topbar">
+    <div class="container">
+      <span>Official website of Dreamers FA</span>
+      <span class="hide-sm"><a href="/register">Register a player</a> · <a href="/admin">Club admin</a></span>
+    </div>
+  </div>
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="/"><img src="/img/crest.svg" alt="" /><div><b>Dreamers FA</b><small>Football Academy</small></div></a>
+      <button class="menu-btn" aria-label="Open menu" aria-expanded="false" onclick="const n=document.querySelector('.nav');n.classList.toggle('open');this.setAttribute('aria-expanded',n.classList.contains('open'))">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <nav class="nav">
+        <a href="/#news">News</a>
+        <a href="/#fixtures">Fixtures</a>
+        <a href="/#teams">Teams</a>
+        <a href="/#academy">Academy</a>
+        <a href="/#club">Club</a>
+        <a href="/#contact">Contact</a>
+        <a class="btn btn-primary btn-sm" href="/register">Join the club</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="container">
+        <div>
+          <span class="eyebrow">Blue &amp; White · Since day one</span>
+          <h1>Dream <span>big.</span><br />Play together.</h1>
+          <p>Dreamers FA is a football club for every age — from first kicks in our U8s to our senior squad. Train with qualified coaches at a centre near you.</p>
+          <div class="actions">
+            <a class="btn btn-light" href="/register">Register a player</a>
+            <a class="btn btn-outline" href="#fixtures">See fixtures</a>
+          </div>
+        </div>
+        <img class="hero-crest" src="/img/crest.svg" alt="Dreamers FA crest" />
+      </div>
+    </section>
+
+    <div class="stats-bar">
+      <div class="container">
+        <div class="stats">
+          <div class="stat"><b id="st-players">–</b><span>Active players</span></div>
+          <div class="stat"><b id="st-locations">–</b><span>Training centres</span></div>
+          <div class="stat"><b id="st-teams">–</b><span>Age groups</span></div>
+          <div class="stat"><b id="st-wins">–</b><span>Wins recorded</span></div>
+        </div>
+      </div>
+    </div>
+
+    <section id="news">
+      <div class="container">
+        <div class="section-head">
+          <div><span class="kicker">Latest</span><h2>Club news</h2></div>
+        </div>
+        <div class="news-grid" id="news-grid"><div class="empty">Loading news…</div></div>
+      </div>
+    </section>
+
+    <section id="fixtures" class="dark">
+      <div class="container">
+        <div class="section-head">
+          <div><span class="kicker" style="color:#9fb4e0">Matchday</span><h2>Fixtures &amp; results</h2></div>
+          <div class="tabs" role="tablist">
+            <button class="active" data-tab="upcoming" role="tab">Upcoming</button>
+            <button data-tab="results" role="tab">Results</button>
+          </div>
+        </div>
+        <div class="fixtures" id="fixtures-list"></div>
+      </div>
+    </section>
+
+    <section id="teams">
+      <div class="container">
+        <div class="section-head">
+          <div><span class="kicker">Squads</span><h2>Our teams</h2><p>Players are grouped by age so everyone trains and plays at the right level.</p></div>
+        </div>
+        <div class="teams-grid">
+          <div class="team-card"><b>U8</b><span>Under 8 · First steps</span></div>
+          <div class="team-card"><b>U10</b><span>Under 10 · Fun &amp; fundamentals</span></div>
+          <div class="team-card"><b>U12</b><span>Under 12 · Skills</span></div>
+          <div class="team-card"><b>U14</b><span>Under 14 · Development</span></div>
+          <div class="team-card"><b>U16</b><span>Under 16 · Competition</span></div>
+          <div class="team-card"><b>U18</b><span>Under 18 · Pathway</span></div>
+          <div class="team-card"><b>Senior</b><span>First team</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="academy" class="alt">
+      <div class="container">
+        <div class="section-head">
+          <div><span class="kicker">Academy</span><h2>Training centres</h2><p>Choose the centre nearest to you when you register.</p></div>
+          <a class="btn btn-primary" href="/register">Register now</a>
+        </div>
+        <div class="loc-grid" id="loc-grid"></div>
+      </div>
+    </section>
+
+    <section id="club">
+      <div class="container split">
+        <div>
+          <span class="kicker">The club</span>
+          <h2>More than a club</h2>
+          <p>Dreamers FA was founded to give every young player a place to learn, compete and grow. Our blue and white stand for ambition and fair play — on and off the pitch.</p>
+          <p>Edit this text in <code>public/index.html</code> to tell your club&rsquo;s own story: when it was founded, your achievements and your coaches.</p>
+        </div>
+        <div class="values">
+          <div class="value"><h4>Ambition</h4><p>We set high goals and work hard every session to reach them.</p></div>
+          <div class="value"><h4>Respect</h4><p>For teammates, opponents, referees and parents.</p></div>
+          <div class="value"><h4>Teamwork</h4><p>We win together and learn together.</p></div>
+          <div class="value"><h4>Development</h4><p>Qualified coaching at every age group.</p></div>
+        </div>
+      </div>
+      <div class="container" style="margin-top:64px">
+        <div class="cta">
+          <div><h2>Become a Dreamer</h2><p>Registration takes two minutes. Our coaches will call you to confirm.</p></div>
+          <a class="btn btn-light" href="/register">Register a player</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer" id="contact">
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <a class="brand" href="/"><img src="/img/crest.svg" alt="" /><div><b>Dreamers FA</b></div></a>
+          <p>Dream big. Play together. A community football club developing players of every age in blue and white.</p>
+        </div>
+        <div><h4>Club</h4><a href="/#news">News</a><a href="/#fixtures">Fixtures &amp; results</a><a href="/#teams">Teams</a><a href="/#club">About us</a></div>
+        <div><h4>Academy</h4><a href="/#academy">Locations &amp; fees</a><a href="/register">Register a player</a><a href="/admin">Club admin</a></div>
+        <div><h4>Contact</h4><a href="mailto:info@example.com">info@example.com</a><a href="tel:+910000000000">+91 00000 00000</a><span>Update these in the footer of the HTML pages</span></div>
+      </div>
+      <div class="copy"><span>© <span id="year"></span> Dreamers FA. All rights reserved.</span><span>Hala Dreamers 💙🤍</span></div>
+    </div>
+  </footer>
+
+  <dialog id="news-modal">
+    <div class="modal-head"><h3 id="nm-title"></h3><button class="close-btn" aria-label="Close" onclick="this.closest('dialog').close()">×</button></div>
+    <div class="modal-body"><time id="nm-date" class="hint"></time><div id="nm-body"></div></div>
+  </dialog>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/site.js"></script>
+</body>
+</html>
