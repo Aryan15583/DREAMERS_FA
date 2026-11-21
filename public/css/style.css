@@ -320,3 +320,4 @@ td .sub, .list-item .sub { font-size: 12px; color: var(--muted); }
 .day-pick span { display: inline-block; padding: 6px 11px; border: 1.5px solid var(--line); border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--muted); user-select: none; }
 .day-pick input:checked + span { background: var(--blue); border-color: var(--blue); color: #fff; }
 .day-pick input:focus-visible + span { box-shadow: 0 0 0 3px rgba(23,71,181,.25); }
+.readonly, input[readonly] { background: var(--bg); color: var(--navy); font-weight: 600; }

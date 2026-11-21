@@ -57,9 +57,12 @@
           <div class="grid">
             <label><span>First name <span class="req">*</span></span><input name="first_name" required autocomplete="given-name" /></label>
             <label><span>Last name <span class="req">*</span></span><input name="last_name" required autocomplete="family-name" /></label>
-            <label><span>Date of birth <span class="req">*</span></span><input name="dob" type="date" required /><span class="hint" id="age-hint">Age group is worked out from date of birth.</span></label>
+            <label><span>Birth date <span class="req">*</span></span><input name="dob" type="date" required /></label>
+            <label>Age<input id="age" readonly tabindex="-1" placeholder="Filled in from birth date" class="readonly" /><span class="hint" id="age-hint">Worked out automatically from the birth date.</span></label>
+            <label><span>Standard (class) <span class="req">*</span></span><select name="standard" required><option value="">Select standard…</option><!--standards--></select></label>
+            <label><span>Blood group <span class="req">*</span></span><select name="blood_group" required><option value="">Select blood group…</option><!--blood--></select></label>
+            <label><span>Playing position <span class="req">*</span></span><select name="position" required><option value="">Select position…</option><!--positions--></select><span class="hint">New to football? Choose <b>Fresher</b>.</span></label>
             <label>Gender<select name="gender"><option value="">Prefer not to say</option><option>Male</option><option>Female</option><option>Other</option></select></label>
-            <label>Preferred position<select name="position"><option value="">Not sure yet</option><option>Goalkeeper</option><option>Defender</option><option>Midfielder</option><option>Forward</option></select></label>
             <label>Player phone<input name="phone" type="tel" autocomplete="tel" /></label>
             <label class="full">Email<input name="email" type="email" autocomplete="email" /></label>
             <label class="full">Home address / area<input name="address" autocomplete="street-address" /></label>

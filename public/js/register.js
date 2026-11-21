@@ -1,5 +1,8 @@
 (async function () {
   const form = $('#reg-form');
+  form.standard.insertAdjacentHTML('beforeend', optionList(STANDARDS));
+  form.blood_group.insertAdjacentHTML('beforeend', optionList(BLOOD_GROUPS, BLOOD_LABELS));
+  form.position.insertAdjacentHTML('beforeend', optionList(POSITIONS, POSITION_LABELS));
   try {
     const locs = await api('/api/locations');
     const params = new URLSearchParams(location.search);
@@ -18,7 +21,8 @@
   form.dob.addEventListener('change', () => {
     if (!form.dob.value) return;
     const a = ageFromDob(form.dob.value);
-    $('#age-hint').textContent = a >= 0 ? `Age ${a} · ${ageGroup(a)} group` : 'Date of birth cannot be in the future';
+    $('#age').value = a >= 0 ? `${a} year${a === 1 ? '' : 's'}` : '';
+    $('#age-hint').textContent = a >= 0 ? `${ageGroup(a)} age group` : 'Birth date cannot be in the future';
   });
 
   form.addEventListener('submit', async (e) => {
@@ -29,7 +33,10 @@
     const errs = [];
     if (!data.location_id) errs.push('Please choose a training centre');
     if (!data.first_name?.trim() || !data.last_name?.trim()) errs.push('Please enter the player’s full name');
-    if (!data.dob) errs.push('Please enter date of birth');
+    if (!data.dob) errs.push('Please enter the birth date');
+    if (!data.standard) errs.push('Please choose the standard (class)');
+    if (!data.blood_group) errs.push('Please choose the blood group (or “Don’t know”)');
+    if (!data.position) errs.push('Please choose a playing position (choose Fresher if new)');
     if (!data.phone?.trim() && !data.guardian_phone?.trim()) errs.push('Please give at least one phone number');
     if (data.dob && ageFromDob(data.dob) < 18 && !data.guardian_name?.trim()) errs.push('Guardian name is required for players under 18');
     if (!data.consent) errs.push('Please tick the consent box');

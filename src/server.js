@@ -87,6 +87,11 @@ const wrap = (fn) => (req, res) => {
   }
 };
 
+// Keep these lists in sync with public/js/common.js
+const POSITIONS = ['Fresher', 'Goalkeeper', 'Defender', 'Midfielder', 'Forward'];
+const STANDARDS = ['Jr KG', 'Sr KG', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th', 'College', 'Not studying'];
+const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', "Don't know"];
+
 function playerFields(b, { admin }) {
   const p = {
     first_name: str(b.first_name, 80),
@@ -95,6 +100,8 @@ function playerFields(b, { admin }) {
     gender: str(b.gender, 20),
     location_id: num(b.location_id),
     position: str(b.position, 40),
+    standard: str(b.standard, 20),
+    blood_group: str(b.blood_group, 20),
     phone: str(b.phone, 30),
     email: str(b.email, 120),
     guardian_name: str(b.guardian_name, 120),
@@ -115,6 +122,14 @@ function playerFields(b, { admin }) {
   else if (new Date(p.dob) > new Date()) errors.push('Date of birth cannot be in the future');
   if (!p.location_id || !db.prepare('SELECT 1 FROM locations WHERE id = ?').get(p.location_id)) errors.push('Please choose a location');
   if (!p.phone && !p.guardian_phone) errors.push('A phone number is required');
+  if (p.position && !POSITIONS.includes(p.position)) errors.push('Please choose a playing position from the list');
+  if (p.standard && !STANDARDS.includes(p.standard)) errors.push('Please choose the standard (class) from the list');
+  if (p.blood_group && !BLOOD_GROUPS.includes(p.blood_group)) errors.push('Please choose a blood group from the list');
+  if (!admin) { // the public registration form must have these
+    if (!p.standard) errors.push('Standard (class) is required');
+    if (!p.blood_group) errors.push('Blood group is required');
+    if (!p.position) errors.push('Playing position is required (choose Fresher if the player is new)');
+  }
   if (p.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.email)) errors.push('Email address looks invalid');
   return { p, errors };
 }
@@ -191,9 +206,9 @@ app.post('/api/register', wrap((req, res) => {
   if (!req.body.consent) errors.push('Please accept the consent checkbox');
   if (isDate(p.dob) && ageOn(p.dob) < 18 && !p.guardian_name) errors.push('Guardian name is required for players under 18');
   if (errors.length) return res.status(400).json({ error: errors.join('. ') });
-  const r = db.prepare(`INSERT INTO players(first_name,last_name,dob,gender,location_id,position,phone,email,guardian_name,guardian_phone,address,notes,status)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'pending')`).run(
-    p.first_name, p.last_name, p.dob, p.gender, p.location_id, p.position, p.phone, p.email,
+  const r = db.prepare(`INSERT INTO players(first_name,last_name,dob,gender,location_id,position,standard,blood_group,phone,email,guardian_name,guardian_phone,address,notes,status)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')`).run(
+    p.first_name, p.last_name, p.dob, p.gender, p.location_id, p.position, p.standard, p.blood_group, p.phone, p.email,
     p.guardian_name, p.guardian_phone, p.address, p.notes);
   res.json({ ok: true, id: Number(r.lastInsertRowid) });
 }));
@@ -276,7 +291,7 @@ admin.get('/players', wrap((req, res) => {
 admin.get('/players.csv', wrap((req, res) => {
   const period = isPeriod(req.query.period) ? req.query.period : currentPeriod();
   const rows = filterPlayers(listPlayers(period), req.query);
-  const cols = ['id', 'first_name', 'last_name', 'dob', 'age', 'age_group', 'gender', 'location_name', 'position', 'jersey_number',
+  const cols = ['id', 'first_name', 'last_name', 'dob', 'age', 'age_group', 'standard', 'blood_group', 'gender', 'location_name', 'position', 'jersey_number',
     'phone', 'email', 'guardian_name', 'guardian_phone', 'address', 'status', 'fee', 'period', 'fee_status', 'paid_on', 'joined_on'];
   const esc = (v) => {
     let s = v == null ? '' : String(v);
@@ -301,7 +316,7 @@ admin.get('/players/:id', wrap((req, res) => {
   res.json({ ...decorate(row, currentPeriod()), payments, reminders });
 }));
 
-const PLAYER_COLS = ['first_name', 'last_name', 'dob', 'gender', 'location_id', 'position', 'phone', 'email', 'guardian_name',
+const PLAYER_COLS = ['first_name', 'last_name', 'dob', 'gender', 'location_id', 'position', 'standard', 'blood_group', 'phone', 'email', 'guardian_name',
   'guardian_phone', 'address', 'notes', 'monthly_fee', 'status', 'jersey_number', 'joined_on'];
 
 admin.post('/players', wrap((req, res) => {

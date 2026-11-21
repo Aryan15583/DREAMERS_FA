@@ -1,7 +1,6 @@
 // Dreamers FA — club admin panel
 const state = { locations: [], period: new Date().toISOString().slice(0, 7), view: 'dashboard', filters: {} };
 const AGE_GROUPS = ['U8', 'U10', 'U12', 'U14', 'U16', 'U18', 'Senior'];
-const POSITIONS = ['Goalkeeper', 'Defender', 'Midfielder', 'Forward'];
 const view = () => $('#view');
 const feeText = (n) => (n > 0 ? money(n) : '—'); // fees are optional; show a dash when none is set
 
@@ -116,7 +115,7 @@ async function dashboard() {
 // ---------- players ----------
 function playerRow(p) {
   return `<tr class="clickable" data-id="${p.id}">
-    <td><div class="name">${esc(p.first_name)} ${esc(p.last_name)}</div><div class="sub">${esc(p.position || '—')}${p.jersey_number != null ? ' · #' + p.jersey_number : ''}</div></td>
+    <td><div class="name">${esc(p.first_name)} ${esc(p.last_name)}</div><div class="sub">${[esc(p.position || '—'), p.standard ? `Std ${esc(p.standard)}` : '', p.jersey_number != null ? '#' + p.jersey_number : ''].filter(Boolean).join(' · ')}</div></td>
     <td><span class="pill group">${p.age_group}</span> <span class="sub">${p.age} yrs</span></td>
     <td>${esc(p.location_name || '—')}</td>
     <td><div>${esc(p.phone || p.guardian_phone || '—')}</div><div class="sub">${esc(p.guardian_name || '')}</div></td>
@@ -186,7 +185,9 @@ function playerFormHtml(p = {}) {
       <label><span>Date of birth <span class="req">*</span></span><input type="date" name="dob" value="${esc(p.dob)}" required></label>
       <label>Gender<select name="gender">${opts(['Male', 'Female', 'Other'], p.gender, '—')}</select></label>
       <label><span>Location <span class="req">*</span></span><select name="location_id" required>${locOpts(p.location_id, 'Choose…')}</select></label>
-      <label>Position<select name="position">${opts(POSITIONS, p.position, '—')}</select></label>
+      <label>Position<select name="position">${opts(POSITIONS.map((v) => [v, POSITION_LABELS[v] || v]), p.position, '—')}</select></label>
+      <label>Standard (class)<select name="standard">${opts(STANDARDS, p.standard, '—')}</select></label>
+      <label>Blood group<select name="blood_group">${opts(BLOOD_GROUPS.map((v) => [v, BLOOD_LABELS[v] || v]), p.blood_group, '—')}</select></label>
       <label>Status<select name="status">${opts([['active', 'Active'], ['pending', 'Pending'], ['inactive', 'Inactive']], p.status || 'active')}</select></label>
       <label>Jersey number<input type="number" min="0" max="99" name="jersey_number" value="${esc(p.jersey_number)}"></label>
       <label>Monthly fee override<input type="number" min="0" step="any" name="monthly_fee" value="${esc(p.monthly_fee)}" placeholder="Use location fee"><span class="hint">Leave empty to use the location's fee (e.g. set a discount or scholarship here).</span></label>
@@ -228,6 +229,9 @@ async function playerModal(id) {
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
         <span class="pill group">${p.age_group} · ${p.age} yrs</span>
         <span class="pill ${p.status}">${p.status}</span>
+        ${p.position ? `<span class="pill">${esc(POSITION_LABELS[p.position] || p.position)}</span>` : ''}
+        ${p.standard ? `<span class="pill">Std ${esc(p.standard)}</span>` : ''}
+        ${p.blood_group ? `<span class="pill unpaid" title="Blood group">🩸 ${esc(BLOOD_LABELS[p.blood_group] || p.blood_group)}</span>` : ''}
         <span class="pill">${esc(p.location_name || 'No location')}</span>
         ${p.fee > 0 ? `<span class="pill">Fee ${money(p.fee)}/month</span>` : ''}
         <span class="pill">Registered ${fmtDate(p.created_at)}</span>
@@ -242,7 +246,7 @@ async function playerModal(id) {
         </div>` : ''}
         <form class="pay-row" id="pay-form">
           <label>Month<input type="month" name="period" value="${state.period}" required></label>
-          <label>Amount<input type="number" step="any" min="0" name="amount" value="${p.fee}"></label>
+          <label>Amount<input type="number" step="any" min="0" name="amount" value="${p.fee > 0 ? p.fee : ''}" placeholder="Optional"></label>
           <label>Paid on<input type="date" name="paid_on" value="${new Date().toISOString().slice(0, 10)}"></label>
           <label>Method<select name="method">${opts(['Cash', 'UPI', 'Bank transfer', 'Card', 'Other'], 'Cash')}</select></label>
           <button class="btn btn-primary" type="submit">Record</button>

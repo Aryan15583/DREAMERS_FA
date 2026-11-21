@@ -6,7 +6,7 @@ Official website for **Dreamers Football Association (Dreamers FA)**, with onlin
 
 **Public website** (`/`)
 - Home page with hero, club stats, news, fixtures & results, age-group teams, training centres with fees, about section
-- Online **player registration** (`/register`): player chooses a training centre (location); age group is worked out from date of birth
+- Online **player registration** (`/register`): parents choose a training centre and fill in name, birth date (age and age group are calculated automatically), standard (class), blood group and playing position (**Fresher** for new players). These are required, along with guardian details for under-18s
 
 **Club admin** (`/admin`)
 - **Dashboard**: active / pending players, paid vs unpaid for any month, money collected and outstanding, breakdown by location and age group

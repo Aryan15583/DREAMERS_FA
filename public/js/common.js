@@ -27,6 +27,14 @@ function mapLink(l) {
   return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
 }
 
+// ---- player form choices (keep in sync with src/server.js) ----
+const POSITIONS = ['Fresher', 'Goalkeeper', 'Defender', 'Midfielder', 'Forward'];
+const POSITION_LABELS = { Fresher: 'Fresher (new player)' };
+const STANDARDS = ['Jr KG', 'Sr KG', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th', 'College', 'Not studying'];
+const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', "Don't know"];
+const BLOOD_LABELS = { 'A-': 'A−', 'B-': 'B−', 'AB-': 'AB−', 'O-': 'O−' };
+const optionList = (values, labels = {}) => values.map((v) => `<option value="${esc(v)}">${esc(labels[v] || v)}</option>`).join('');
+
 // ---- training timings ----
 const WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 function fmtTime(t) {

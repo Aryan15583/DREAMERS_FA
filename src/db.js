@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS players (
   monthly_fee REAL,
   status TEXT NOT NULL DEFAULT 'pending',
   jersey_number INTEGER,
+  standard TEXT,
+  blood_group TEXT,
   joined_on TEXT,
   notes TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -96,6 +98,9 @@ CREATE TABLE IF NOT EXISTS fixtures (
 // Add columns introduced after the first release
 const locCols = db.prepare('PRAGMA table_info(locations)').all().map((c) => c.name);
 if (!locCols.includes('map_url')) db.exec('ALTER TABLE locations ADD COLUMN map_url TEXT');
+const playerCols = db.prepare('PRAGMA table_info(players)').all().map((c) => c.name);
+if (!playerCols.includes('standard')) db.exec('ALTER TABLE players ADD COLUMN standard TEXT');      // school class, e.g. "5th"
+if (!playerCols.includes('blood_group')) db.exec('ALTER TABLE players ADD COLUMN blood_group TEXT');
 if (!locCols.includes('schedule')) db.exec('ALTER TABLE locations ADD COLUMN schedule TEXT'); // JSON list of training sessions
 
 function hashPassword(pw) {
