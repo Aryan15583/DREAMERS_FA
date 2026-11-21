@@ -1,6 +1,6 @@
 # Dreamers FA — club website & player management
 
-Official website for **Dreamers FA** (blue & white), with online player registration and an admin panel to manage players, locations and monthly fees.
+Official website for **Dreamers Football Association (Dreamers FA)**, with online player registration and an admin panel to manage players, locations and monthly fees.
 
 ## Features
 
