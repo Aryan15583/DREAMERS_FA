@@ -49,7 +49,7 @@ $('#logout').addEventListener('click', async (e) => { e.preventDefault(); await 
 async function start(username) {
   $('#login').hidden = true; $('#app').hidden = false;
   $('#who').textContent = username;
-  state.locations = await api('/api/locations');
+  [state.locations, state.wa] = await Promise.all([api('/api/locations'), api('/api/admin/settings')]);
   const v = location.hash.slice(1);
   go(['dashboard', 'players', 'fees', 'locations', 'news', 'fixtures', 'settings'].includes(v) ? v : 'dashboard');
 }
@@ -234,6 +234,11 @@ async function playerModal(id) {
       ${p.status === 'pending' ? `<div class="alert alert-ok" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">New registration — approve to make this player active.<button class="btn btn-sm btn-primary" id="approve">Approve player</button></div>` : ''}
       <fieldset>
         <legend>Fees &amp; payments</legend>
+        ${p.status === 'active' && !p.payments.some((x) => x.period === state.period) ? `
+        <div class="alert alert-error" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+          <span>${esc(fmtMonth(state.period))} fee of ${money(p.fee)} is unpaid.${p.reminders.length ? ` Last reminder: ${fmtDate(fromSqlUtc(p.reminders[0].sent_at), { day: 'numeric', month: 'short' })}.` : ''}</span>
+          <button class="btn btn-sm btn-wa" type="button" id="wa-remind">${waIcon} WhatsApp reminder</button>
+        </div>` : ''}
         <form class="pay-row" id="pay-form">
           <label>Month<input type="month" name="period" value="${state.period}" required></label>
           <label>Amount<input type="number" step="any" min="0" name="amount" value="${p.fee}"></label>
@@ -257,6 +262,10 @@ async function playerModal(id) {
       if (!confirm(`Remove payment for ${fmtMonth(b.dataset.undo)}?`)) return;
       await guarded(async () => { await api(`/api/admin/players/${p.id}/payments/${b.dataset.undo}`, { method: 'DELETE' }); toast('Payment removed'); playerModal(p.id); refreshBehind(); });
     }));
+    const wr = $('#wa-remind', body);
+    if (wr) wr.addEventListener('click', () => {
+      if (sendReminder(p, state.period)) { toast('WhatsApp opened — press send there'); setTimeout(() => { playerModal(p.id); refreshBehind(); }, 400); }
+    });
     const ap = $('#approve', body);
     if (ap) ap.addEventListener('click', async () => {
       await guarded(async () => { await api(`/api/admin/players/${p.id}`, { method: 'PUT', body: { status: 'active' } }); toast('Player approved'); playerModal(p.id); refreshBehind(); });
@@ -266,12 +275,88 @@ async function playerModal(id) {
 // re-render the page under the modal without closing it
 function refreshBehind() { if (state.view !== 'settings') go(state.view); }
 
+// ---------- WhatsApp reminders ----------
+// Uses WhatsApp click-to-chat (wa.me): opens WhatsApp Web / the app with the message filled in.
+// The admin presses Send in WhatsApp, so no WhatsApp Business account or API key is needed.
+const fromSqlUtc = (s) => (s ? new Date(s.replace(' ', 'T') + 'Z') : null);
+function normalizePhone(raw) {
+  const t = String(raw || '').trim();
+  if (!t) return null;
+  let d = t.replace(/\D/g, '');
+  if (t.startsWith('+')) { /* already international */ }
+  else if (d.startsWith('00')) d = d.slice(2);
+  else {
+    d = d.replace(/^0+/, '');
+    if (d.length <= 10) d = (state.wa?.wa_country_code || '91') + d;
+  }
+  return d.length >= 8 && d.length <= 15 ? d : null;
+}
+// Under-18s: message the guardian first. Adults: message the player first.
+function reminderContact(p) {
+  const order = p.age < 18 ? [p.guardian_phone, p.phone] : [p.phone, p.guardian_phone];
+  for (const raw of order) { const n = normalizePhone(raw); if (n) return { raw, number: n }; }
+  return null;
+}
+function reminderText(p, period) {
+  const vars = {
+    player: `${p.first_name} ${p.last_name}`,
+    first_name: p.first_name,
+    guardian: (p.age < 18 && p.guardian_name) || p.first_name,
+    month: fmtMonth(period),
+    amount: money(p.fee),
+    location: p.location_name || '',
+    club: 'Dreamers Football Association',
+  };
+  return (state.wa?.wa_template || '').replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+}
+const waIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z"/></svg>';
+function reminderStatus(p) {
+  if (!p.reminder_count) return '';
+  return `<div class="sub">💬 Reminded${p.reminder_count > 1 ? ` ${p.reminder_count}×` : ''} · ${fmtDate(fromSqlUtc(p.last_reminder), { day: 'numeric', month: 'short' })}</div>`;
+}
+// Must be called directly from a click handler so the browser allows the new tab.
+function sendReminder(p, period) {
+  const c = reminderContact(p);
+  if (!c) { toast(`No valid phone number for ${p.first_name} ${p.last_name}`, true); return false; }
+  window.open(`https://wa.me/${c.number}?text=${encodeURIComponent(reminderText(p, period))}`, '_blank', 'noopener');
+  api(`/api/admin/players/${p.id}/reminders`, { method: 'POST', body: { period, phone: c.raw } }).catch(() => {});
+  p.reminder_count = (p.reminder_count || 0) + 1;
+  p.last_reminder = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  return true;
+}
+
+function reminderQueue(unpaid, period, onDone) {
+  const list = [...unpaid].sort((a, b) => (a.reminder_count || 0) - (b.reminder_count || 0));
+  const body = openModal(`WhatsApp reminders · ${fmtMonth(period)}`, `
+    <p class="muted" style="margin-top:0">Press <b>Send</b> for each player. WhatsApp opens with the message ready — press send there, then come back for the next one.
+      Players not reminded yet are listed first.</p>
+    <div class="table-wrap"><table><tbody>${list.map((p, i) => {
+      const c = reminderContact(p);
+      return `<tr data-row="${i}">
+        <td><div class="name">${esc(p.first_name)} ${esc(p.last_name)}</div><div class="sub">${esc(p.location_name || '')} · ${money(p.fee)}</div>${reminderStatus(p)}</td>
+        <td>${c ? `<div>${esc(c.raw)}</div><div class="sub">${p.age < 18 && c.raw === p.guardian_phone ? 'Guardian' : 'Player'}</div>` : '<span class="pill unpaid">No phone</span>'}</td>
+        <td class="num">${c ? `<button class="btn btn-sm btn-wa" data-send="${i}">${waIcon} Send</button>` : ''}</td>
+      </tr>`;
+    }).join('') || '<tr><td class="muted">Everyone has paid for this month 🎉</td></tr>'}</tbody></table></div>`);
+  $$('[data-send]', body).forEach((b) => b.addEventListener('click', () => {
+    const p = list[b.dataset.send];
+    if (!sendReminder(p, period)) return;
+    b.outerHTML = '<span class="pill paid">✓ Opened</span>';
+    const next = $$('[data-send]', body)[0];
+    if (next) next.focus();
+  }));
+  $('#modal').addEventListener('close', onDone, { once: true });
+}
+
 // ---------- fees (quick monthly collection) ----------
 async function fees() {
   const f = state.feeFilters || (state.feeFilters = {});
   view().innerHTML = `
     <div class="page-head"><h1>Fees</h1>
-      <div class="actions"><a class="btn btn-sm btn-outline" style="color:var(--navy)" id="fee-csv">⬇ Export unpaid list</a></div>
+      <div class="actions">
+        <a class="btn btn-sm btn-outline" style="color:var(--navy)" id="fee-csv">⬇ Export unpaid list</a>
+        <button class="btn btn-sm btn-wa" id="remind-all" disabled>${waIcon} Remind unpaid</button>
+      </div>
     </div>
     <div class="kpis" id="fee-kpis"></div>
     <div class="panel">
@@ -293,6 +378,10 @@ async function fees() {
     $('#fee-csv').href = '/api/admin/players.csv?' + new URLSearchParams({ ...Object.fromEntries(q), fee: 'unpaid' });
     const paid = list.filter((p) => p.fee_status === 'paid');
     const unpaid = list.filter((p) => p.fee_status === 'unpaid');
+    const ra = $('#remind-all');
+    ra.disabled = !unpaid.length;
+    ra.innerHTML = `${waIcon} Remind unpaid (${unpaid.length})`;
+    ra.onclick = () => reminderQueue(unpaid, state.period, load);
     $('#fee-kpis').innerHTML = `
       <div class="kpi"><span>${esc(fmtMonth(state.period))}</span><b>${list.length}</b></div>
       <div class="kpi ok"><span>Paid</span><b>${paid.length}</b></div>
@@ -304,10 +393,13 @@ async function fees() {
       <td>${esc(p.location_name || '—')}</td>
       <td>${esc(p.phone || p.guardian_phone || '—')}</td>
       <td class="num">${money(p.paid_amount ?? p.fee)}</td>
-      <td><span class="pill ${p.fee_status}">${p.fee_status}</span>${p.paid_on ? `<div class="sub">${fmtDate(p.paid_on)}</div>` : ''}</td>
-      <td class="num">${p.fee_status === 'paid'
+      <td><span class="pill ${p.fee_status}">${p.fee_status}</span>${p.paid_on ? `<div class="sub">${fmtDate(p.paid_on)}</div>` : reminderStatus(p)}</td>
+      <td class="num" style="white-space:nowrap">${p.fee_status === 'paid'
         ? `<button class="btn btn-sm btn-outline" style="color:var(--muted)" data-unpay="${p.id}">Undo</button>`
-        : `<button class="btn btn-sm btn-primary" data-pay="${p.id}">Mark paid</button>`}
+        : `${reminderContact(p)
+            ? `<button class="btn btn-sm btn-wa" data-remind="${p.id}" title="Send WhatsApp reminder">${waIcon} Remind</button>`
+            : `<button class="btn btn-sm btn-wa" disabled title="No valid phone number saved — open the player to add one">${waIcon} Remind</button>`}
+           <button class="btn btn-sm btn-primary" data-pay="${p.id}">Mark paid</button>`}
         <button class="btn btn-sm btn-outline" style="color:var(--navy)" data-open="${p.id}">Open</button></td>
     </tr>`).join('') || '<tr><td colspan="6" class="muted">No active players match.</td></tr>';
     $$('[data-pay]').forEach((b) => b.addEventListener('click', async () => {
@@ -319,6 +411,10 @@ async function fees() {
       await guarded(async () => { await api(`/api/admin/players/${b.dataset.unpay}/payments/${state.period}`, { method: 'DELETE' }); load(); });
     }));
     $$('[data-open]').forEach((b) => b.addEventListener('click', () => playerModal(b.dataset.open)));
+    $$('[data-remind]').forEach((b) => b.addEventListener('click', () => {
+      const p = list.find((x) => String(x.id) === b.dataset.remind);
+      if (sendReminder(p, state.period)) { toast('WhatsApp opened — press send there'); setTimeout(load, 400); }
+    }));
   });
   let t;
   $('#fee-filters').addEventListener('input', (e) => {
@@ -414,6 +510,16 @@ async function fixturesView() {
 function settings() {
   view().innerHTML = `
     <div class="page-head"><h1>Settings</h1></div>
+    <div class="panel" style="max-width:820px"><div class="panel-head"><h3>WhatsApp fee reminder</h3></div>
+      <form class="panel-body" id="wa-form" style="display:grid;gap:14px">
+        <div id="wa-alert"></div>
+        <label>Default country code<input name="wa_country_code" value="${esc(state.wa?.wa_country_code)}" inputmode="numeric" style="max-width:140px">
+          <span class="hint">Added to 10-digit numbers saved without one (91 = India).</span></label>
+        <label>Message<textarea name="wa_template" style="min-height:200px">${esc(state.wa?.wa_template)}</textarea>
+          <span class="hint">Placeholders: {guardian} {player} {first_name} {month} {amount} {location} {club}</span></label>
+        <div><div class="hint" style="margin-bottom:6px">Preview</div><div id="wa-preview" class="wa-bubble"></div></div>
+        <button class="btn btn-primary" style="justify-self:start">Save reminder settings</button>
+      </form></div>
     <div class="panel" style="max-width:520px"><div class="panel-head"><h3>Change password</h3></div>
       <form class="panel-body" id="pw-form" style="display:grid;gap:14px">
         <div id="pw-alert"></div>
@@ -421,6 +527,23 @@ function settings() {
         <label>New password<input type="password" name="next" minlength="8" required autocomplete="new-password"></label>
         <button class="btn btn-primary">Update password</button>
       </form></div>`;
+  const waForm = $('#wa-form');
+  const sample = { first_name: 'Aarav', last_name: 'Sharma', guardian_name: 'Priya Sharma', age: 11, fee: state.locations[0]?.monthly_fee || 1500, location_name: state.locations[0]?.name || 'Main Ground' };
+  const preview = () => {
+    const saved = state.wa; state.wa = { ...saved, wa_template: waForm.wa_template.value };
+    $('#wa-preview').textContent = reminderText(sample, state.period);
+    state.wa = saved;
+  };
+  waForm.addEventListener('input', preview); preview();
+  waForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await api('/api/admin/settings', { method: 'PUT', body: formData(waForm) });
+      state.wa = await api('/api/admin/settings');
+      waForm.wa_country_code.value = state.wa.wa_country_code;
+      $('#wa-alert').innerHTML = ''; toast('Reminder settings saved');
+    } catch (err) { $('#wa-alert').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
+  });
   $('#pw-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     try { await api('/api/admin/password', { method: 'POST', body: formData(e.target) }); e.target.reset(); toast('Password updated'); }

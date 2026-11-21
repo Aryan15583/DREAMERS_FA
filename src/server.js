@@ -2,7 +2,7 @@ const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
 const cookieParser = require('cookie-parser');
-const { db, hashPassword, verifyPassword, getSetting } = require('./db');
+const { db, hashPassword, verifyPassword, getSetting, setSetting } = require('./db');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -113,10 +113,13 @@ function decorate(row, period) {
 function listPlayers(period) {
   return db.prepare(`
     SELECT p.*, l.name AS location_name, l.monthly_fee AS location_fee,
-           pay.amount AS paid_amount, pay.paid_on AS paid_on
+           pay.amount AS paid_amount, pay.paid_on AS paid_on,
+           (SELECT MAX(sent_at) FROM reminders r WHERE r.player_id = p.id AND r.period = pay_period.period) AS last_reminder,
+           (SELECT COUNT(*) FROM reminders r WHERE r.player_id = p.id AND r.period = pay_period.period) AS reminder_count
     FROM players p
+    CROSS JOIN (SELECT ? AS period) pay_period
     LEFT JOIN locations l ON l.id = p.location_id
-    LEFT JOIN payments pay ON pay.player_id = p.id AND pay.period = ?
+    LEFT JOIN payments pay ON pay.player_id = p.id AND pay.period = pay_period.period
     ORDER BY p.last_name COLLATE NOCASE, p.first_name COLLATE NOCASE
   `).all(period).map((r) => decorate(r, period));
 }
@@ -270,7 +273,8 @@ admin.get('/players/:id', wrap((req, res) => {
     WHERE p.id = ?`).get(currentPeriod(), req.params.id);
   if (!row) return res.status(404).json({ error: 'Player not found' });
   const payments = db.prepare('SELECT * FROM payments WHERE player_id = ? ORDER BY period DESC').all(row.id);
-  res.json({ ...decorate(row, currentPeriod()), payments });
+  const reminders = db.prepare('SELECT period, sent_at FROM reminders WHERE player_id = ? ORDER BY sent_at DESC LIMIT 20').all(row.id);
+  res.json({ ...decorate(row, currentPeriod()), payments, reminders });
 }));
 
 const PLAYER_COLS = ['first_name', 'last_name', 'dob', 'gender', 'location_id', 'position', 'phone', 'email', 'guardian_name',
@@ -318,6 +322,30 @@ admin.post('/players/:id/payments', wrap((req, res) => {
 
 admin.delete('/players/:id/payments/:period', wrap((req, res) => {
   db.prepare('DELETE FROM payments WHERE player_id = ? AND period = ?').run(req.params.id, req.params.period);
+  res.json({ ok: true });
+}));
+
+// ---------- reminders & settings ----------
+admin.post('/players/:id/reminders', wrap((req, res) => {
+  const player = db.prepare('SELECT id FROM players WHERE id = ?').get(req.params.id);
+  if (!player) return res.status(404).json({ error: 'Player not found' });
+  const period = isPeriod(req.body.period) ? req.body.period : currentPeriod();
+  db.prepare('INSERT INTO reminders(player_id, period, channel, phone) VALUES(?, ?, ?, ?)')
+    .run(player.id, period, 'whatsapp', str(req.body.phone, 30));
+  res.json({ ok: true });
+}));
+
+admin.get('/settings', wrap((req, res) => {
+  res.json({ wa_template: getSetting('wa_template') || '', wa_country_code: getSetting('wa_country_code') || '' });
+}));
+
+admin.put('/settings', wrap((req, res) => {
+  const tpl = str(req.body.wa_template, 2000);
+  const cc = String(req.body.wa_country_code ?? '').replace(/\D/g, '');
+  if (!tpl) return res.status(400).json({ error: 'Message template cannot be empty' });
+  if (!cc || cc.length > 4) return res.status(400).json({ error: 'Country code should be 1–4 digits, e.g. 91' });
+  setSetting('wa_template', tpl);
+  setSetting('wa_country_code', cc);
   res.json({ ok: true });
 }));
 

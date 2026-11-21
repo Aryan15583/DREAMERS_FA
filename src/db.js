@@ -59,6 +59,16 @@ CREATE TABLE IF NOT EXISTS payments (
   UNIQUE(player_id, period)
 );
 
+CREATE TABLE IF NOT EXISTS reminders (
+  id INTEGER PRIMARY KEY,
+  player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  period TEXT NOT NULL,
+  channel TEXT NOT NULL DEFAULT 'whatsapp',
+  phone TEXT,
+  sent_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS reminders_player_period ON reminders(player_id, period);
+
 CREATE TABLE IF NOT EXISTS news (
   id INTEGER PRIMARY KEY,
   title TEXT NOT NULL,
@@ -104,6 +114,16 @@ function setSetting(key, value) {
 
 // ---- first-run seed ----
 if (!getSetting('session_secret')) setSetting('session_secret', crypto.randomBytes(32).toString('hex'));
+
+const DEFAULT_WA_TEMPLATE = `Hello {guardian},
+
+This is a friendly reminder from Dreamers Football Association ⚽💙
+
+The {month} training fee for {player} ({location}) of {amount} is still pending. Please pay at your earliest convenience.
+
+If you have already paid, please ignore this message. Thank you!`;
+if (!getSetting('wa_template')) setSetting('wa_template', DEFAULT_WA_TEMPLATE);
+if (!getSetting('wa_country_code')) setSetting('wa_country_code', process.env.WA_COUNTRY_CODE || '91');
 
 if (!db.prepare('SELECT 1 FROM admins LIMIT 1').get()) {
   const user = process.env.ADMIN_USER || 'admin';

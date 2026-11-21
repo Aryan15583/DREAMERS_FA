@@ -12,6 +12,7 @@ Official website for **Dreamers FA** (blue & white), with online player registra
 - **Dashboard**: active / pending players, paid vs unpaid for any month, money collected and outstanding, breakdown by location and age group
 - **Players**: search and filter by location, age group (U8–U18, Senior), status and fee status; add, edit, approve and delete players; export to CSV (opens in Excel)
 - **Fees**: pick a month and mark each player **paid / unpaid** with one click; full payment history per player (amount, date, Cash/UPI/Bank…); per-player fee override for discounts or scholarships
+- **WhatsApp fee reminders**: a *Remind* button next to every unpaid player and a *Remind unpaid* list for the whole month. WhatsApp (app or WhatsApp Web) opens with a personalised message, already addressed to the guardian for under-18s and to the player for adults; you press send. Each reminder is logged ("Reminded 2× · 21 Nov"). Edit the message and the default country code in Admin → Settings. It uses free click-to-chat links, so no WhatsApp Business account is needed
 - **Locations**: training centres with address, schedule and monthly fee
 - **News** and **Fixtures/Results**: edit what appears on the website
 - **Settings**: change admin password
