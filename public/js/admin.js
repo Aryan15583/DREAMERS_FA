@@ -461,12 +461,14 @@ async function locationsView() {
     state.locations = await api('/api/locations');
     listEditor({
       title: 'Locations', label: 'location', endpoint: '/api/admin/locations', items: state.locations,
-      render: (l) => `<div class="name">${esc(l.name)}</div><div class="sub">${[esc(l.address || ''), esc(l.training_days || ''), l.monthly_fee > 0 ? `<b>${money(l.monthly_fee)}</b>/month` : '<span style="color:var(--bad)">Fee not set</span>'].filter(Boolean).join(' · ')}</div>`,
+      render: (l) => `<div class="name">${esc(l.name)} <a href="${esc(mapLink(l))}" target="_blank" rel="noopener" class="hint" style="font-weight:500">${l.map_url ? 'map pin ↗' : 'map search ↗ (add exact link)'}</a></div><div class="sub">${[esc(l.address || ''), esc(l.training_days || ''), l.monthly_fee > 0 ? `<b>${money(l.monthly_fee)}</b>/month` : '<span style="color:var(--bad)">Fee not set</span>'].filter(Boolean).join(' · ')}</div>`,
       fields: (l) => `
         <label class="full"><span>Name <span class="req">*</span></span><input name="name" value="${esc(l.name)}" required></label>
         <label class="full">Address<input name="address" value="${esc(l.address)}"></label>
         <label>Training days &amp; times<input name="training_days" value="${esc(l.training_days)}" placeholder="Mon, Wed · 5–7 PM"></label>
-        <label>Monthly fee<input type="number" min="0" step="any" name="monthly_fee" value="${esc(l.monthly_fee ?? 0)}"></label>`,
+        <label>Monthly fee<input type="number" min="0" step="any" name="monthly_fee" value="${esc(l.monthly_fee ?? 0)}"></label>
+        <label class="full">Google Maps link<input name="map_url" value="${esc(l.map_url)}" placeholder="https://maps.app.goo.gl/…">
+          <span class="hint">In Google Maps, open the ground → Share → Copy link, and paste it here. Leave empty to search by name and address.</span></label>`,
     });
   });
 }

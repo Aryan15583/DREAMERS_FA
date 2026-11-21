@@ -68,6 +68,7 @@
     <div class="loc">
       <h3>${esc(l.name)}</h3>
       ${l.address ? `<div class="row">📍 <span>${esc(l.address)}</span></div>` : ''}
+      <a class="map-link" href="${esc(mapLink(l))}" target="_blank" rel="noopener">🗺️ Get directions on Google Maps ↗</a>
       ${l.training_days ? `<div class="row">🕒 <span>${esc(l.training_days)}</span></div>` : ''}
       <div class="fee"><span class="hint">Monthly fee</span>${l.monthly_fee > 0 ? `<b>${money(l.monthly_fee)}</b>` : '<span class="muted">Contact us</span>'}</div>
       <a class="btn btn-primary btn-sm" style="margin-top:8px" href="/register?location=${l.id}">Register at this centre</a>

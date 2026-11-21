@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS locations (
   name TEXT NOT NULL,
   address TEXT,
   training_days TEXT,
-  monthly_fee REAL NOT NULL DEFAULT 0
+  monthly_fee REAL NOT NULL DEFAULT 0,
+  map_url TEXT
 );
 
 CREATE TABLE IF NOT EXISTS players (
@@ -90,6 +91,10 @@ CREATE TABLE IF NOT EXISTS fixtures (
   score_them INTEGER
 );
 `);
+
+// Add columns introduced after the first release
+const locCols = db.prepare('PRAGMA table_info(locations)').all().map((c) => c.name);
+if (!locCols.includes('map_url')) db.exec('ALTER TABLE locations ADD COLUMN map_url TEXT');
 
 function hashPassword(pw) {
   const salt = crypto.randomBytes(16).toString('hex');

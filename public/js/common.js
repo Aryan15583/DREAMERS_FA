@@ -20,6 +20,13 @@ async function api(url, opts = {}) {
   return data;
 }
 
+// Exact pin if one was saved, otherwise a Google Maps search for the centre
+function mapLink(l) {
+  if (l.map_url) return l.map_url;
+  const q = [l.name, l.address, l.address && /dombivli/i.test(l.address) ? '' : 'Dombivli', 'Maharashtra'].filter(Boolean).join(', ');
+  return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
+}
+
 function ageFromDob(dob) {
   const b = new Date(dob), t = new Date();
   let a = t.getFullYear() - b.getFullYear();

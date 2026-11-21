@@ -8,6 +8,7 @@
         <input type="radio" name="location_id" value="${l.id}" ${params.get('location') == l.id || (locs.length === 1 && i === 0) ? 'checked' : ''} required />
         <b>${esc(l.name)}</b>
         ${l.address ? `<small>${esc(l.address)}</small>` : ''}
+        <a class="map-link" href="${esc(mapLink(l))}" target="_blank" rel="noopener" onclick="event.stopPropagation()">View on map ↗</a>
         ${l.training_days ? `<small>${esc(l.training_days)}</small>` : ''}
         ${l.monthly_fee > 0 ? `<small>${money(l.monthly_fee)} / month</small>` : ''}
       </label>`).join('') || '<div class="hint">No centres available yet — please check back soon.</div>';

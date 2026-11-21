@@ -137,7 +137,7 @@ function filterPlayers(list, q) {
 
 // ---------- public API ----------
 app.get('/api/locations', wrap((req, res) => {
-  res.json(db.prepare('SELECT id, name, address, training_days, monthly_fee FROM locations ORDER BY name').all());
+  res.json(db.prepare('SELECT id, name, address, training_days, monthly_fee, map_url FROM locations ORDER BY name').all());
 }));
 
 app.get('/api/news', wrap((req, res) => {
@@ -375,8 +375,9 @@ function pick(body, fields) {
   return o;
 }
 
-crud('locations', 'locations', ['name', 'address', 'training_days', 'monthly_fee'], (v) => {
+crud('locations', 'locations', ['name', 'address', 'training_days', 'monthly_fee', 'map_url'], (v) => {
   if (!v.name) return 'Name is required';
+  if (v.map_url && !/^https:\/\/[^\s]+$/i.test(v.map_url)) return 'Google Maps link must start with https://';
   if (v.monthly_fee == null) v.monthly_fee = 0;
   if (v.monthly_fee < 0) return 'Fee cannot be negative';
 });

@@ -263,8 +263,8 @@ td { padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: m
 tr:last-child td { border-bottom: 0; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover { background: #f8faff; }
-td .name { font-weight: 600; color: var(--navy); }
-td .sub { font-size: 12px; color: var(--muted); }
+td .name, .list-item .name { font-weight: 600; color: var(--navy); }
+td .sub, .list-item .sub { font-size: 12px; color: var(--muted); }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .pill.paid, .pill.active { background: var(--ok-bg); color: var(--ok); }
@@ -292,3 +292,6 @@ td .sub { font-size: 12px; color: var(--muted); }
 .btn-wa { background: #25d366; color: #063d1d; }
 .btn-wa:hover { background: #1ebe5b; }
 .wa-bubble { background: #dcf8c6; color: #111b21; border-radius: 10px 10px 10px 2px; padding: 12px 14px; white-space: pre-wrap; font-size: 14px; max-width: 460px; box-shadow: 0 1px 1px rgba(0,0,0,.12); }
+.map-link { font-size: 13px; font-weight: 600; color: var(--blue); text-decoration: none; }
+.map-link:hover { text-decoration: underline; }
+.loc-option .map-link { position: relative; z-index: 1; font-size: 12px; margin-top: 4px; }
