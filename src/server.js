@@ -57,6 +57,29 @@ function ageGroup(age) {
   return 'Senior';
 }
 
+// Training sessions for a centre: [{ days: ['Mon','Wed'], start: '17:00', end: '19:00', group: 'U8–U12', note: '' }]
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const isTime = (t) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t || '');
+function parseSchedule(raw) {
+  let list = raw;
+  if (typeof raw === 'string') { try { list = raw.trim() ? JSON.parse(raw) : []; } catch { return { error: 'Timings could not be read' }; } }
+  if (list == null) list = [];
+  if (!Array.isArray(list)) return { error: 'Timings could not be read' };
+  if (list.length > 20) return { error: 'A centre can have at most 20 sessions' };
+  const out = [];
+  for (const [i, s] of list.entries()) {
+    const n = `Session ${i + 1}`;
+    const days = DAYS.filter((d) => Array.isArray(s?.days) && s.days.includes(d));
+    if (!days.length) return { error: `${n}: choose at least one day` };
+    if (!isTime(s.start) || !isTime(s.end)) return { error: `${n}: enter a start and end time` };
+    if (s.end <= s.start) return { error: `${n}: end time must be after start time` };
+    out.push({ days, start: s.start, end: s.end, group: str(s.group, 40) || 'All ages', note: str(s.note, 80) });
+  }
+  out.sort((a, b) => DAYS.indexOf(a.days[0]) - DAYS.indexOf(b.days[0]) || a.start.localeCompare(b.start));
+  return { value: out };
+}
+const readSchedule = (txt) => { try { return JSON.parse(txt || '[]'); } catch { return []; } };
+
 const wrap = (fn) => (req, res) => {
   try { fn(req, res); } catch (e) {
     console.error(e);
@@ -137,7 +160,8 @@ function filterPlayers(list, q) {
 
 // ---------- public API ----------
 app.get('/api/locations', wrap((req, res) => {
-  res.json(db.prepare('SELECT id, name, address, training_days, monthly_fee, map_url FROM locations ORDER BY name').all());
+  res.json(db.prepare('SELECT id, name, address, monthly_fee, map_url, schedule FROM locations ORDER BY name').all()
+    .map((l) => ({ ...l, schedule: readSchedule(l.schedule) })));
 }));
 
 app.get('/api/news', wrap((req, res) => {
@@ -371,12 +395,16 @@ function crud(name, table, fields, validate) {
 const NUMERIC = new Set(['monthly_fee', 'score_us', 'score_them']);
 function pick(body, fields) {
   const o = {};
-  for (const f of fields) o[f] = NUMERIC.has(f) ? num(body[f]) : str(body[f], f === 'body' ? 20000 : 500);
+  for (const f of fields) {
+    if (f === 'schedule') { const r = parseSchedule(body.schedule); o.schedule = r.value ? JSON.stringify(r.value) : null; o._scheduleError = r.error; }
+    else o[f] = NUMERIC.has(f) ? num(body[f]) : str(body[f], f === 'body' ? 20000 : 500);
+  }
   return o;
 }
 
-crud('locations', 'locations', ['name', 'address', 'training_days', 'monthly_fee', 'map_url'], (v) => {
+crud('locations', 'locations', ['name', 'address', 'monthly_fee', 'map_url', 'schedule'], (v) => {
   if (!v.name) return 'Name is required';
+  if (v._scheduleError) return v._scheduleError;
   if (v.map_url && !/^https:\/\/[^\s]+$/i.test(v.map_url)) return 'Google Maps link must start with https://';
   if (v.monthly_fee == null) v.monthly_fee = 0;
   if (v.monthly_fee < 0) return 'Fee cannot be negative';

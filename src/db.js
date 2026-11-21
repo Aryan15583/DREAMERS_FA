@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS locations (
   address TEXT,
   training_days TEXT,
   monthly_fee REAL NOT NULL DEFAULT 0,
-  map_url TEXT
+  map_url TEXT,
+  schedule TEXT
 );
 
 CREATE TABLE IF NOT EXISTS players (
@@ -95,6 +96,7 @@ CREATE TABLE IF NOT EXISTS fixtures (
 // Add columns introduced after the first release
 const locCols = db.prepare('PRAGMA table_info(locations)').all().map((c) => c.name);
 if (!locCols.includes('map_url')) db.exec('ALTER TABLE locations ADD COLUMN map_url TEXT');
+if (!locCols.includes('schedule')) db.exec('ALTER TABLE locations ADD COLUMN schedule TEXT'); // JSON list of training sessions
 
 function hashPassword(pw) {
   const salt = crypto.randomBytes(16).toString('hex');

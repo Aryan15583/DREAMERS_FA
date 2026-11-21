@@ -296,3 +296,27 @@ td .sub, .list-item .sub { font-size: 12px; color: var(--muted); }
 .map-link { font-size: 13px; font-weight: 600; color: var(--blue); text-decoration: none; }
 .map-link:hover { text-decoration: underline; }
 .loc-option .map-link { position: relative; z-index: 1; font-size: 12px; margin-top: 4px; }
+
+/* training timings */
+.timings { margin-top: 6px; padding: 12px 14px; background: var(--bg); border-radius: 8px; }
+.timings-head { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--navy); margin-bottom: 6px; }
+.timings ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.timings li { display: grid; grid-template-columns: 1fr auto; gap: 0 10px; font-size: 14px; }
+.timings li b { color: var(--navy); font-weight: 600; }
+.timings li span { color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.timings li em { grid-column: 1 / -1; font-style: normal; font-size: 12px; color: var(--muted); }
+.timings p { margin: 0; font-size: 14px; }
+.sched-title { font-size: 13px; font-weight: 600; color: #34405a; margin-bottom: 8px; }
+.sched-row { display: grid; grid-template-columns: 1fr 1fr 36px; gap: 8px; padding: 12px; border: 1.5px solid var(--line); border-radius: 10px; margin-bottom: 10px; align-items: center; }
+.sched-row .day-picks { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+.sched-row [data-k=group], .sched-row [data-k=note] { grid-column: span 1; }
+.sched-row .close-btn { grid-row: 2; grid-column: 3; }
+.sched-row [data-k=start] { grid-row: 2; grid-column: 1; }
+.sched-row [data-k=end] { grid-row: 2; grid-column: 2; }
+.sched-row [data-k=group] { grid-row: 3; grid-column: 1; }
+.sched-row [data-k=note] { grid-row: 3; grid-column: 2 / 4; }
+.day-pick { flex-direction: row; cursor: pointer; }
+.day-pick input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.day-pick span { display: inline-block; padding: 6px 11px; border: 1.5px solid var(--line); border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--muted); user-select: none; }
+.day-pick input:checked + span { background: var(--blue); border-color: var(--blue); color: #fff; }
+.day-pick input:focus-visible + span { box-shadow: 0 0 0 3px rgba(23,71,181,.25); }

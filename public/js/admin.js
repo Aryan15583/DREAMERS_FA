@@ -430,7 +430,7 @@ async function fees() {
 }
 
 // ---------- generic list editor (locations / news / fixtures) ----------
-function listEditor({ title, endpoint, items, render, fields, label }) {
+function listEditor({ title, endpoint, items, render, fields, label, onOpen, serialize }) {
   view().innerHTML = `
     <div class="page-head"><h1>${title}</h1><div class="actions"><button class="btn btn-sm btn-primary" id="add">+ Add ${label}</button></div></div>
     <div class="panel">${items.map((it, i) => `<div class="list-item"><div>${render(it)}</div>
@@ -439,10 +439,13 @@ function listEditor({ title, endpoint, items, render, fields, label }) {
   const edit = (it = {}) => {
     openModal(it.id ? `Edit ${label}` : `Add ${label}`, `<form id="ed-form"><div id="ed-alert"></div><div class="grid">${fields(it)}</div>
       <div class="modal-foot"><span></span><button class="btn btn-primary">Save</button></div></form>`);
+    if (onOpen) onOpen($('#ed-form'), it);
     $('#ed-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       try {
-        await api(it.id ? `${endpoint}/${it.id}` : endpoint, { method: it.id ? 'PUT' : 'POST', body: formData(e.target) });
+        const data = formData(e.target);
+        if (serialize) serialize(e.target, data);
+        await api(it.id ? `${endpoint}/${it.id}` : endpoint, { method: it.id ? 'PUT' : 'POST', body: data });
         closeModal(); toast('Saved'); refresh();
       } catch (err) { $('#ed-alert').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
     });
@@ -461,14 +464,47 @@ async function locationsView() {
     state.locations = await api('/api/locations');
     listEditor({
       title: 'Locations', label: 'location', endpoint: '/api/admin/locations', items: state.locations,
-      render: (l) => `<div class="name">${esc(l.name)} <a href="${esc(mapLink(l))}" target="_blank" rel="noopener" class="hint" style="font-weight:500">${l.map_url ? 'map pin ↗' : 'map search ↗ (add exact link)'}</a></div><div class="sub">${[esc(l.address || ''), esc(l.training_days || ''), l.monthly_fee > 0 ? `<b>${money(l.monthly_fee)}</b>/month` : ''].filter(Boolean).join(' · ')}</div>`,
+      render: (l) => `<div class="name">${esc(l.name)} <a href="${esc(mapLink(l))}" target="_blank" rel="noopener" class="hint" style="font-weight:500">${l.map_url ? 'map pin ↗' : 'map search ↗ (add exact link)'}</a></div><div class="sub">${[esc(l.address || ''), l.schedule?.length ? l.schedule.map((s) => `${esc(fmtDays(s.days))} ${esc(fmtTimeRange(s.start, s.end))} (${esc(s.group)})`).join('; ') : '<span class="muted">No timings yet</span>', l.monthly_fee > 0 ? `<b>${money(l.monthly_fee)}</b>/month` : ''].filter(Boolean).join(' · ')}</div>`,
       fields: (l) => `
         <label class="full"><span>Name <span class="req">*</span></span><input name="name" value="${esc(l.name)}" required></label>
         <label class="full">Address<input name="address" value="${esc(l.address)}"></label>
-        <label>Training days &amp; times<input name="training_days" value="${esc(l.training_days)}" placeholder="Mon, Wed · 5–7 PM"></label>
-        <label>Monthly fee<input type="number" min="0" step="any" name="monthly_fee" value="${esc(l.monthly_fee ?? 0)}"></label>
+        <div class="full">
+          <div class="sched-title">Training timings</div>
+          <div id="sched-rows"></div>
+          <button type="button" class="btn btn-sm btn-outline" style="color:var(--navy)" id="sched-add">+ Add session</button>
+          <span class="hint" style="display:block;margin-top:6px">One row per session, e.g. Mon, Wed, Fri · 5–7 PM · U8–U12. Leave empty and the website shows "To be announced".</span>
+        </div>
+        <label>Monthly fee <span class="hint">(optional, not shown on the website)</span><input type="number" min="0" step="any" name="monthly_fee" value="${esc(l.monthly_fee ?? 0)}"></label>
         <label class="full">Google Maps link<input name="map_url" value="${esc(l.map_url)}" placeholder="https://maps.app.goo.gl/…">
           <span class="hint">In Google Maps, open the ground → Share → Copy link, and paste it here. Leave empty to search by name and address.</span></label>`,
+      onOpen: (form, l) => {
+        const rows = $('#sched-rows', form);
+        const addRow = (s = { days: [], start: '', end: '', group: '', note: '' }) => {
+          const row = document.createElement('div');
+          row.className = 'sched-row';
+          row.innerHTML = `
+            <div class="day-picks">${WEEK.map((d) => `<label class="day-pick"><input type="checkbox" value="${d}" ${s.days.includes(d) ? 'checked' : ''}><span>${d}</span></label>`).join('')}</div>
+            <input type="time" data-k="start" value="${esc(s.start)}" aria-label="Start time">
+            <input type="time" data-k="end" value="${esc(s.end)}" aria-label="End time">
+            <input data-k="group" value="${esc(s.group)}" placeholder="Age group, e.g. U8–U12" list="group-list" aria-label="Age group">
+            <input data-k="note" value="${esc(s.note)}" placeholder="Note (optional)" aria-label="Note">
+            <button type="button" class="close-btn" title="Remove session" aria-label="Remove session">×</button>`;
+          $('.close-btn', row).addEventListener('click', () => row.remove());
+          rows.appendChild(row);
+        };
+        (l.schedule || []).forEach(addRow);
+        if (!(l.schedule || []).length) addRow();
+        $('#sched-add', form).addEventListener('click', () => addRow());
+        if (!$('#group-list')) document.body.insertAdjacentHTML('beforeend',
+          `<datalist id="group-list">${['All ages', ...AGE_GROUPS, 'U8–U12', 'U14–U18', 'Goalkeepers'].map((g) => `<option value="${g}">`).join('')}</datalist>`);
+      },
+      serialize: (form, data) => {
+        data.schedule = $$('.sched-row', form).map((r) => ({
+          days: $$('.day-pick input:checked', r).map((c) => c.value),
+          start: $('[data-k=start]', r).value, end: $('[data-k=end]', r).value,
+          group: $('[data-k=group]', r).value, note: $('[data-k=note]', r).value,
+        })).filter((s) => s.days.length || s.start || s.end || s.note); // ignore completely empty rows
+      },
     });
   });
 }

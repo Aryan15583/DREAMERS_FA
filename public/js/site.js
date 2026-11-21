@@ -69,7 +69,11 @@
       <h3>${esc(l.name)}</h3>
       ${l.address ? `<div class="row">📍 <span>${esc(l.address)}</span></div>` : ''}
       <a class="map-link" href="${esc(mapLink(l))}" target="_blank" rel="noopener">🗺️ Get directions on Google Maps ↗</a>
-      ${l.training_days ? `<div class="row">🕒 <span>${esc(l.training_days)}</span></div>` : ''}
+      <div class="timings">
+        <div class="timings-head">🕒 Training timings</div>
+        ${l.schedule?.length ? `<ul>${l.schedule.map((s) => `<li><b>${esc(fmtDays(s.days))}</b><span>${esc(fmtTimeRange(s.start, s.end))}</span><em>${esc(s.group)}${s.note ? ' · ' + esc(s.note) : ''}</em></li>`).join('')}</ul>`
+          : '<p class="muted">To be announced</p>'}
+      </div>
       <a class="btn btn-primary btn-sm" style="margin-top:8px" href="/register?location=${l.id}">Register at this centre</a>
     </div>`).join('') : '<div class="empty">Centres will be announced soon.</div>';
 })();

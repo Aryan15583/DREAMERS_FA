@@ -27,6 +27,26 @@ function mapLink(l) {
   return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q);
 }
 
+// ---- training timings ----
+const WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+function fmtTime(t) {
+  const [h, m] = t.split(':').map(Number);
+  return `${h % 12 || 12}${m ? ':' + String(m).padStart(2, '0') : ''} ${h < 12 ? 'AM' : 'PM'}`;
+}
+function fmtTimeRange(a, b) {
+  const [x, y] = [fmtTime(a), fmtTime(b)];
+  return x.slice(-2) === y.slice(-2) ? `${x.slice(0, -3)} – ${y}` : `${x} – ${y}`; // "5 – 7 PM", "11 AM – 1 PM"
+}
+function fmtDays(days) {
+  const idx = days.map((d) => WEEK.indexOf(d)).sort((a, b) => a - b);
+  if (idx.length === 7) return 'Every day';
+  if (idx.join() === '0,1,2,3,4') return 'Mon – Fri';
+  if (idx.join() === '5,6') return 'Sat & Sun';
+  const runs = [];
+  for (const i of idx) { const r = runs[runs.length - 1]; if (r && i === r[1] + 1) r[1] = i; else runs.push([i, i]); }
+  return runs.map(([a, b]) => (b - a >= 2 ? `${WEEK[a]} – ${WEEK[b]}` : b > a ? `${WEEK[a]}, ${WEEK[b]}` : WEEK[a])).join(', ');
+}
+
 function ageFromDob(dob) {
   const b = new Date(dob), t = new Date();
   let a = t.getFullYear() - b.getFullYear();
