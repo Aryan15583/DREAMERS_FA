@@ -124,10 +124,16 @@ const DEFAULT_WA_TEMPLATE = `Hello {guardian},
 
 This is a friendly reminder from Dreamers Football Association ⚽💙
 
-The {month} training fee for {player} ({location}) of {amount} is still pending. Please pay at your earliest convenience.
+The {month} training fee for {player} ({location}) is still pending. Please pay at your earliest convenience.
 
 If you have already paid, please ignore this message. Thank you!`;
 if (!getSetting('wa_template')) setSetting('wa_template', DEFAULT_WA_TEMPLATE);
+// One-time: drop the fee amount from the reminder if the message was never customised
+else if (!getSetting('wa_template_v2')) {
+  const t = getSetting('wa_template');
+  if (t.includes('({location}) of {amount} is still pending')) setSetting('wa_template', t.replace(' of {amount} is still pending', ' is still pending'));
+}
+setSetting('wa_template_v2', '1');
 if (!getSetting('wa_country_code')) setSetting('wa_country_code', process.env.WA_COUNTRY_CODE || '91');
 
 if (!db.prepare('SELECT 1 FROM admins LIMIT 1').get()) {

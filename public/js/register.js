@@ -10,7 +10,6 @@
         ${l.address ? `<small>${esc(l.address)}</small>` : ''}
         <a class="map-link" href="${esc(mapLink(l))}" target="_blank" rel="noopener" onclick="event.stopPropagation()">View on map ↗</a>
         ${l.training_days ? `<small>${esc(l.training_days)}</small>` : ''}
-        ${l.monthly_fee > 0 ? `<small>${money(l.monthly_fee)} / month</small>` : ''}
       </label>`).join('') || '<div class="hint">No centres available yet — please check back soon.</div>';
   } catch {
     $('#loc-options').innerHTML = '<div class="alert alert-error">Could not load centres. Please refresh the page.</div>';
