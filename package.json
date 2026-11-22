@@ -4,8 +4,8 @@
   "description": "Dreamers FA club website and player management",
   "main": "src/server.js",
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning src/server.js",
-    "dev": "node --watch --disable-warning=ExperimentalWarning src/server.js"
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
   },
   "repository": {
     "type": "git",
@@ -16,11 +16,12 @@
   },
   "homepage": "https://github.com/Aryan15583/DREAMERS_FA#readme",
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "cookie-parser": "^1.4.7",
     "express": "^4.22.3"
   },
   "engines": {
-    "node": ">=22.13"
+    "node": "22.x"
   },
   "private": true
 }

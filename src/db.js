@@ -1,16 +1,46 @@
+// Database access for Dreamers FA.
+// Uses libSQL (SQLite-compatible):
+//   - locally: a file in ./data (or DATA_DIR)
+//   - on Vercel: a Turso database (TURSO_DATABASE_URL + TURSO_AUTH_TOKEN)
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { DatabaseSync } = require('node:sqlite');
+const { createClient } = require('@libsql/client');
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
-fs.mkdirSync(DATA_DIR, { recursive: true });
-const db = new DatabaseSync(path.join(DATA_DIR, 'dreamers.db'));
+const ON_VERCEL = !!process.env.VERCEL;
 
-db.exec(`
-PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = WAL;
+function makeClient() {
+  if (process.env.TURSO_DATABASE_URL) {
+    return createClient({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN });
+  }
+  if (ON_VERCEL) {
+    throw new Error('TURSO_DATABASE_URL is not set. Add it (and TURSO_AUTH_TOKEN) in Vercel > Project > Settings > Environment Variables, then redeploy.');
+  }
+  const dir = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+  fs.mkdirSync(dir, { recursive: true });
+  return createClient({ url: 'file:' + path.join(dir, 'dreamers.db') });
+}
 
+let client;
+const conn = () => (client ||= makeClient());
+const clean = (args) => args.map((a) => (a === undefined ? null : a));
+const toObjects = (rs) => rs.rows.map((r) => Object.fromEntries(rs.columns.map((c, i) => [c, r[i]])));
+
+const db = {
+  async all(sql, ...args) { return toObjects(await conn().execute({ sql, args: clean(args) })); },
+  async get(sql, ...args) { return (await db.all(sql, ...args))[0]; },
+  async run(sql, ...args) {
+    const r = await conn().execute({ sql, args: clean(args) });
+    return { lastInsertRowid: Number(r.lastInsertRowid ?? 0), changes: r.rowsAffected };
+  },
+  // Several writes in one transaction: db.batch([[sql, ...args], ...])
+  async batch(statements) {
+    return conn().batch(statements.map(([sql, ...args]) => ({ sql, args: clean(args) })), 'write');
+  },
+  exec(sql) { return conn().executeMultiple(sql); },
+};
+
+const SCHEMA = `
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 
 CREATE TABLE IF NOT EXISTS admins (
@@ -94,19 +124,7 @@ CREATE TABLE IF NOT EXISTS fixtures (
   score_us INTEGER,
   score_them INTEGER
 );
-`);
-
-// Add columns introduced after the first release
-const locCols = db.prepare('PRAGMA table_info(locations)').all().map((c) => c.name);
-if (!locCols.includes('map_url')) db.exec('ALTER TABLE locations ADD COLUMN map_url TEXT');
-const playerCols = db.prepare('PRAGMA table_info(players)').all().map((c) => c.name);
-if (!playerCols.includes('standard')) db.exec('ALTER TABLE players ADD COLUMN standard TEXT');      // school class, e.g. "5th"
-if (!playerCols.includes('blood_group')) db.exec('ALTER TABLE players ADD COLUMN blood_group TEXT');
-if (!playerCols.includes('registered_via')) { // 'form' = parent used the registration form, 'admin' = added by the club
-  db.exec('ALTER TABLE players ADD COLUMN registered_via TEXT');
-  db.exec("UPDATE players SET registered_via = CASE WHEN status = 'pending' THEN 'form' ELSE 'admin' END");
-}
-if (!locCols.includes('schedule')) db.exec('ALTER TABLE locations ADD COLUMN schedule TEXT'); // JSON list of training sessions
+`;
 
 function hashPassword(pw) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -121,16 +139,13 @@ function verifyPassword(pw, stored) {
   return ref.length === test.length && crypto.timingSafeEqual(ref, test);
 }
 
-function getSetting(key) {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+async function getSetting(key) {
+  const row = await db.get('SELECT value FROM settings WHERE key = ?', key);
   return row ? row.value : null;
 }
-function setSetting(key, value) {
-  db.prepare('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
+async function setSetting(key, value) {
+  await db.run('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, value);
 }
-
-// ---- first-run seed ----
-if (!getSetting('session_secret')) setSetting('session_secret', crypto.randomBytes(32).toString('hex'));
 
 const DEFAULT_WA_TEMPLATE = `Hello {guardian},
 
@@ -139,21 +154,6 @@ This is a friendly reminder from Dreamers Football Association ⚽💙
 The {month} training fee for {player} ({location}) is still pending. Please pay at your earliest convenience.
 
 If you have already paid, please ignore this message. Thank you!`;
-if (!getSetting('wa_template')) setSetting('wa_template', DEFAULT_WA_TEMPLATE);
-// One-time: drop the fee amount from the reminder if the message was never customised
-else if (!getSetting('wa_template_v2')) {
-  const t = getSetting('wa_template');
-  if (t.includes('({location}) of {amount} is still pending')) setSetting('wa_template', t.replace(' of {amount} is still pending', ' is still pending'));
-}
-setSetting('wa_template_v2', '1');
-if (!getSetting('wa_country_code')) setSetting('wa_country_code', process.env.WA_COUNTRY_CODE || '91');
-
-if (!db.prepare('SELECT 1 FROM admins LIMIT 1').get()) {
-  const user = process.env.ADMIN_USER || 'admin';
-  const pw = process.env.ADMIN_PASSWORD || 'dreamers123';
-  db.prepare('INSERT INTO admins(username, password_hash) VALUES(?, ?)').run(user, hashPassword(pw));
-  console.log(`[setup] Created admin user "${user}"${process.env.ADMIN_PASSWORD ? '' : ' with default password "dreamers123" — change it in Admin > Settings'}`);
-}
 
 // The club's training centres (fees and timings are set in Admin > Locations)
 const CLUB_LOCATIONS = [
@@ -162,43 +162,94 @@ const CLUB_LOCATIONS = [
   ['Legends Arena Turf', 'Dombivli (E)'],
 ];
 
-// One-time: replace the original placeholder centres with the club's real ones (keeps player links)
-if (!getSetting('real_locations_v1')) {
-  const placeholders = ['Main Ground', 'North Centre', 'South Centre'];
-  const rows = db.prepare("SELECT id, name FROM locations WHERE address = 'Update this address in Admin > Locations' ORDER BY id").all()
-    .filter((r) => placeholders.includes(r.name));
-  const upd = db.prepare('UPDATE locations SET name = ?, address = ?, training_days = NULL, monthly_fee = 0 WHERE id = ?');
-  rows.forEach((r, i) => { if (CLUB_LOCATIONS[i]) upd.run(CLUB_LOCATIONS[i][0], CLUB_LOCATIONS[i][1], r.id); });
-  db.prepare("UPDATE fixtures SET venue = 'Bhakshala, Dombivali (W)' WHERE venue = 'Main Ground'").run();
-  setSetting('real_locations_v1', '1');
+// Create tables, run one-time upgrades and first-run setup. Safe to run on every start.
+async function init() {
+  await db.exec(SCHEMA);
+
+  // Columns added after the first release
+  const cols = async (t) => (await db.all(`PRAGMA table_info(${t})`)).map((c) => c.name);
+  const locCols = await cols('locations');
+  if (!locCols.includes('map_url')) await db.run('ALTER TABLE locations ADD COLUMN map_url TEXT');
+  if (!locCols.includes('schedule')) await db.run('ALTER TABLE locations ADD COLUMN schedule TEXT'); // JSON list of training sessions
+  const playerCols = await cols('players');
+  if (!playerCols.includes('standard')) await db.run('ALTER TABLE players ADD COLUMN standard TEXT'); // school class, e.g. "5th"
+  if (!playerCols.includes('blood_group')) await db.run('ALTER TABLE players ADD COLUMN blood_group TEXT');
+  if (!playerCols.includes('registered_via')) { // 'form' = parent used the registration form, 'admin' = added by the club
+    await db.run('ALTER TABLE players ADD COLUMN registered_via TEXT');
+    await db.run("UPDATE players SET registered_via = CASE WHEN status = 'pending' THEN 'form' ELSE 'admin' END");
+  }
+
+  const settings = Object.fromEntries((await db.all('SELECT key, value FROM settings')).map((r) => [r.key, r.value]));
+  const set = async (k, v) => { await setSetting(k, v); settings[k] = v; };
+
+  if (!settings.session_secret) await set('session_secret', crypto.randomBytes(32).toString('hex'));
+  if (!settings.wa_template) await set('wa_template', DEFAULT_WA_TEMPLATE);
+  else if (!settings.wa_template_v2 && settings.wa_template.includes('({location}) of {amount} is still pending')) {
+    await set('wa_template', settings.wa_template.replace(' of {amount} is still pending', ' is still pending'));
+  }
+  if (!settings.wa_template_v2) await set('wa_template_v2', '1');
+  if (!settings.wa_country_code) await set('wa_country_code', process.env.WA_COUNTRY_CODE || '91');
+
+  // First admin account. On the live site a password must be provided (never the default one).
+  if (!(await db.get('SELECT 1 AS x FROM admins LIMIT 1'))) {
+    const user = process.env.ADMIN_USER || 'admin';
+    const pw = process.env.ADMIN_PASSWORD || (ON_VERCEL ? null : 'dreamers123');
+    if (pw) {
+      await db.run('INSERT INTO admins(username, password_hash) VALUES(?, ?)', user, hashPassword(pw));
+      console.log(`[setup] Created admin user "${user}"${process.env.ADMIN_PASSWORD ? '' : ' with default password "dreamers123" — change it in Admin > Settings'}`);
+    } else {
+      console.error('[setup] No admin account yet: set ADMIN_PASSWORD in Vercel environment variables and redeploy.');
+    }
+  }
+
+  // One-time: replace the original placeholder centres with the club's real ones (keeps player links)
+  if (!settings.real_locations_v1) {
+    const placeholders = ['Main Ground', 'North Centre', 'South Centre'];
+    const rows = (await db.all("SELECT id, name FROM locations WHERE address = 'Update this address in Admin > Locations' ORDER BY id"))
+      .filter((r) => placeholders.includes(r.name));
+    for (const [i, r] of rows.entries()) {
+      if (CLUB_LOCATIONS[i]) await db.run('UPDATE locations SET name = ?, address = ?, training_days = NULL, monthly_fee = 0 WHERE id = ?', CLUB_LOCATIONS[i][0], CLUB_LOCATIONS[i][1], r.id);
+    }
+    await db.run("UPDATE fixtures SET venue = 'Bhakshala, Dombivali (W)' WHERE venue = 'Main Ground'");
+    await set('real_locations_v1', '1');
+  }
+
+  // One-time: St Joseph's address and "Dombivli" spelling (only touches values that were never edited)
+  if (!settings.real_locations_v2) {
+    await db.batch([
+      ["UPDATE locations SET address = 'Near Regency, Dombivli (E)' WHERE name = 'St Joseph''s CBSC Turf' AND address IS NULL"],
+      ["UPDATE locations SET address = 'Dombivli (W)' WHERE address = 'Dombivali (W)'"],
+      ["UPDATE locations SET address = 'Dombivli (E)' WHERE address = 'Dombivali (E)'"],
+      ["UPDATE fixtures SET venue = 'Bhakshala, Dombivli (W)' WHERE venue = 'Bhakshala, Dombivali (W)'"],
+    ]);
+    await set('real_locations_v2', '1');
+  }
+
+  if (!settings.seeded && process.env.NO_SAMPLE_DATA !== '1') {
+    const today = new Date().toISOString().slice(0, 10);
+    const d = (n) => { const t = new Date(); t.setDate(t.getDate() + n); return t.toISOString().slice(0, 16); };
+    await db.batch([
+      ...CLUB_LOCATIONS.map(([name, address]) => ['INSERT INTO locations(name, address, monthly_fee) VALUES(?, ?, 0)', name, address]),
+      ['INSERT INTO news(title, summary, body, published_at) VALUES(?, ?, ?, ?)', 'Registrations open for the new season',
+        'Players of all ages can now register online at any of our centres.',
+        'Registrations for the new season are now open. Choose your nearest centre, fill in the online form and our coaches will get in touch to confirm your trial session.', today],
+      ['INSERT INTO news(title, summary, body, published_at) VALUES(?, ?, ?, ?)', 'Welcome to the new Dreamers FA website',
+        'Fixtures, results, news and online registration — all in one place.',
+        'Our new website brings everything about the club together. Follow the latest news, check fixtures and results, and register new players online.', today],
+      ['INSERT INTO fixtures(team, opponent, match_date, venue, home_away, competition) VALUES(?, ?, ?, ?, ?, ?)', 'Senior', 'City United', d(7), 'Bhakshala, Dombivli (W)', 'Home', 'League'],
+      ['INSERT INTO fixtures(team, opponent, match_date, venue, home_away, competition) VALUES(?, ?, ?, ?, ?, ?)', 'U14', 'Rising Stars Academy', d(10), 'Away ground', 'Away', 'Youth Cup'],
+    ]);
+    await set('seeded', '1');
+  }
+
+  return settings;
 }
 
-// One-time: St Joseph's address and "Dombivli" spelling (only touches values that were never edited)
-if (!getSetting('real_locations_v2')) {
-  db.prepare("UPDATE locations SET address = 'Near Regency, Dombivli (E)' WHERE name = 'St Joseph''s CBSC Turf' AND address IS NULL").run();
-  db.prepare("UPDATE locations SET address = 'Dombivli (W)' WHERE address = 'Dombivali (W)'").run();
-  db.prepare("UPDATE locations SET address = 'Dombivli (E)' WHERE address = 'Dombivali (E)'").run();
-  db.prepare("UPDATE fixtures SET venue = 'Bhakshala, Dombivli (W)' WHERE venue = 'Bhakshala, Dombivali (W)'").run();
-  setSetting('real_locations_v2', '1');
+// Run setup once per server instance; if it fails (e.g. database unreachable), try again on the next request.
+let readyPromise = null;
+function ready() {
+  if (!readyPromise) readyPromise = init().catch((e) => { readyPromise = null; throw e; });
+  return readyPromise;
 }
 
-if (!getSetting('seeded') && process.env.NO_SAMPLE_DATA !== '1') {
-  const loc = db.prepare('INSERT INTO locations(name, address, training_days, monthly_fee) VALUES(?, ?, ?, ?)');
-  for (const [name, address] of CLUB_LOCATIONS) loc.run(name, address, null, 0);
-
-  const news = db.prepare('INSERT INTO news(title, summary, body, published_at) VALUES(?, ?, ?, ?)');
-  const today = new Date().toISOString().slice(0, 10);
-  news.run('Registrations open for the new season', 'Players of all ages can now register online at any of our centres.',
-    'Registrations for the new season are now open. Choose your nearest centre, fill in the online form and our coaches will get in touch to confirm your trial session.', today);
-  news.run('Welcome to the new Dreamers FA website', 'Fixtures, results, news and online registration — all in one place.',
-    'Our new website brings everything about the club together. Follow the latest news, check fixtures and results, and register new players online.', today);
-
-  const fx = db.prepare('INSERT INTO fixtures(team, opponent, match_date, venue, home_away, competition) VALUES(?, ?, ?, ?, ?, ?)');
-  const d = (n) => { const t = new Date(); t.setDate(t.getDate() + n); return t.toISOString().slice(0, 16); };
-  fx.run('Senior', 'City United', d(7), 'Bhakshala, Dombivli (W)', 'Home', 'League');
-  fx.run('U14', 'Rising Stars Academy', d(10), 'Away ground', 'Away', 'Youth Cup');
-
-  setSetting('seeded', '1');
-}
-
-module.exports = { db, hashPassword, verifyPassword, getSetting, setSetting };
+module.exports = { db, ready, hashPassword, verifyPassword, getSetting, setSetting };

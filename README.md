@@ -20,7 +20,7 @@ Official website for **Dreamers Football Association (Dreamers FA)**, with onlin
 
 ## Run it
 
-Requires **Node.js 22.13+** (uses the built-in SQLite, so there is no database to install).
+Requires **Node.js 22**. Locally the data is kept in a SQLite file in `./data`, so there is nothing else to install.
 
 ```bash
 npm install
@@ -37,7 +37,8 @@ ADMIN_USER=coach ADMIN_PASSWORD='a-strong-password' npm start
 | Variable | Purpose |
 | --- | --- |
 | `PORT` | Port to listen on (default 3000) |
-| `DATA_DIR` | Folder for the SQLite database (default `./data`) — back this up |
+| `DATA_DIR` | Folder for the local database file (default `./data`) |
+| `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` | Use a Turso database instead of the local file (required on Vercel) |
 | `ADMIN_USER` / `ADMIN_PASSWORD` | First admin account (only used on the first start) |
 | `NO_SAMPLE_DATA=1` | Don't create the example locations, news and fixtures |
 
@@ -48,14 +49,41 @@ ADMIN_USER=coach ADMIN_PASSWORD='a-strong-password' npm start
 - Crest/logo: `public/img/logo.webp` (full size) and `public/img/logo-sm.webp` (header)
 - Currency symbol: `public/js/common.js` (`CLUB.currency`)
 
-## Deploying
+## Deploying to Vercel
 
-Any host that runs Node works (Render, Railway, a VPS). The database is a single file in `DATA_DIR`, so give it a **persistent disk** and serve the site over HTTPS.
+Vercel doesn't keep files between requests, so the live site stores its data in **Turso**, a hosted SQLite database with a free plan.
+
+1. **Create the database.** Sign up at [turso.tech](https://turso.tech), then *Create Database* (pick the region closest to India, e.g. Mumbai `aws-ap-south-1`).
+   On the database page copy the **URL** (`libsql://…turso.io`), and under *Create Token* create a token and copy it.
+2. **Import the project.** Sign up at [vercel.com](https://vercel.com) with GitHub, then *Add New → Project* and import this repository.
+   Leave *Framework Preset* as **Other** and the build settings empty (`vercel.json` already configures everything).
+3. **Add environment variables** (Project → Settings → Environment Variables, or on the import screen):
+
+   | Name | Value |
+   | --- | --- |
+   | `TURSO_DATABASE_URL` | the `libsql://…` URL from step 1 |
+   | `TURSO_AUTH_TOKEN` | the token from step 1 |
+   | `ADMIN_USER` | your admin username, e.g. `admin` |
+   | `ADMIN_PASSWORD` | a strong password; this is your admin login |
+
+4. **Deploy.** The tables, the three centres and the admin account are created automatically on the first visit.
+   Open `https://<your-project>.vercel.app/admin` and log in.
+
+Notes:
+- Vercel deploys the repository's **production branch** (usually `main`). Merge your changes into it, or change the branch under Project → Settings → Git.
+- After changing an environment variable, redeploy (Deployments → ⋯ → Redeploy).
+- `ADMIN_PASSWORD` is only used to create the first admin account. Change the password later in Admin → Settings.
+- Back up your data from the Turso dashboard, or export players as CSV from the admin panel.
+- To use your own domain (e.g. `dreamersfa.in`), add it under Project → Settings → Domains.
+
+Other Node hosts (Render, Railway, a VPS) also work: either set the Turso variables, or give the app a persistent disk for `DATA_DIR`.
 
 ## Project layout
 
 ```
-src/server.js     Express server + API
-src/db.js         SQLite schema, first-run setup
+src/server.js     Express server + API (exports the app; `npm start` runs it locally)
+src/db.js         Database (local SQLite file or Turso), schema, first-run setup
+api/index.js      Vercel entry point
+vercel.json       Vercel settings (static pages from public/, /api/* to the Express app)
 public/           Website, registration page and admin panel (plain HTML/CSS/JS)
 ```
