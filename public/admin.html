@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="/img/favicon.png" type="image/png" />
+  <meta name="theme-color" content="#0a1f44" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <title>Club Admin — Dreamers FA</title>
+</head>
+<body class="admin-body">
+  <!-- Login -->
+  <div class="login-wrap" id="login" hidden>
+    <div class="card login-card">
+      <img src="/img/logo-sm.webp" alt="" />
+      <h1>Club admin</h1>
+      <p class="muted">Sign in to manage players, fees and the website.</p>
+      <form id="login-form">
+        <div id="login-alert"></div>
+        <label>Username<input name="username" autocomplete="username" required /></label>
+        <label>Password<input name="password" type="password" autocomplete="current-password" required /></label>
+        <button class="btn btn-primary" type="submit">Sign in</button>
+        <a href="/" class="hint" style="text-align:center">← Back to website</a>
+      </form>
+    </div>
+  </div>
+
+  <!-- App -->
+  <div id="app" hidden>
+    <div class="mobile-bar">
+      <button aria-label="Menu" onclick="$('.sidebar').classList.toggle('open')"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
+      <b>Dreamers FA Admin</b>
+    </div>
+    <div class="app">
+      <aside class="sidebar">
+        <a class="brand" href="/"><img src="/img/logo-sm.webp" alt="" /><div><b>Dreamers FA</b><small>Admin</small></div></a>
+        <button class="nav-item" data-view="dashboard">📊 Dashboard</button>
+        <button class="nav-item" data-view="registrations">📝 Registrations <span class="badge-count" id="pending-count" hidden></span></button>
+        <button class="nav-item" data-view="players">👥 Players</button>
+        <button class="nav-item" data-view="fees">💰 Fees</button>
+        <button class="nav-item" data-view="locations">📍 Locations</button>
+        <button class="nav-item" data-view="news">📰 News</button>
+        <button class="nav-item" data-view="fixtures">⚽ Fixtures</button>
+        <button class="nav-item" data-view="settings">⚙️ Settings</button>
+        <div class="bottom">
+          Signed in as <b id="who"></b><br />
+          <a href="/" target="_blank">View website ↗</a> · <a href="#" id="logout">Sign out</a>
+        </div>
+      </aside>
+      <main class="main" id="view"></main>
+    </div>
+  </div>
+
+  <dialog id="modal">
+    <div class="modal-head"><h3 id="modal-title"></h3><button class="close-btn" aria-label="Close" onclick="this.closest('dialog').close()">×</button></div>
+    <div class="modal-body" id="modal-body"></div>
+  </dialog>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/admin.js"></script>
+</body>
+</html>
