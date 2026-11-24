@@ -124,8 +124,9 @@ async function dashboard() {
 }
 
 // ---------- players ----------
-function playerRow(p) {
+function playerRow(p, { select } = {}) {
   return `<tr class="clickable" data-id="${p.id}">
+    ${select ? `<td class="pick">${p.status !== 'inactive' ? `<input type="checkbox" data-pick="${p.id}" aria-label="Select ${esc(p.first_name)} ${esc(p.last_name)}" ${state.selected?.has(String(p.id)) ? 'checked' : ''}>` : ''}</td>` : ''}
     <td><div class="name">${esc(p.first_name)} ${esc(p.last_name)}</div><div class="sub">${[esc(p.position || '—'), p.standard ? `Std ${esc(p.standard)}` : '', p.jersey_number != null ? '#' + p.jersey_number : ''].filter(Boolean).join(' · ')}</div></td>
     <td><span class="pill group">${p.age_group}</span> <span class="sub">${p.age} yrs</span></td>
     <td>${esc(p.location_name || '—')}</td>
@@ -140,21 +141,21 @@ function rowActions(p, { group } = {}) {
   return `<div class="row-actions">
     ${group ? `<button class="btn btn-sm btn-wa" data-act="group" data-id="${p.id}" title="Send the WhatsApp group link to the parent">${waIcon} Group link</button>` : ''}
     ${p.status === 'pending' ? `<button class="btn btn-sm btn-primary" data-act="approve" data-id="${p.id}">✓ Approve</button>` : ''}
-    ${p.status === 'active' ? `<button class="btn btn-sm btn-outline" style="color:var(--muted)" data-act="leave" data-id="${p.id}" data-name="${esc(p.first_name)} ${esc(p.last_name)}" title="Move to Ex-players">Mark as left</button>` : ''}
+    ${p.status !== 'inactive' ? `<button class="btn btn-sm btn-outline" style="color:var(--muted)" data-act="leave" data-id="${p.id}" data-name="${esc(p.first_name)} ${esc(p.last_name)}" title="Keep for records in the Ex-players list">🗂 Make ex-player</button>` : ''}
     ${p.status === 'inactive' ? `<button class="btn btn-sm btn-primary" data-act="rejoin" data-id="${p.id}" data-name="${esc(p.first_name)} ${esc(p.last_name)}">↩ Re-join</button>` : ''}
     <button class="btn btn-sm btn-outline" style="color:var(--navy)" data-act="edit" data-id="${p.id}">✎ Edit</button>
     <button class="btn btn-sm btn-outline" style="color:var(--bad)" data-act="remove" data-id="${p.id}" data-name="${esc(p.first_name)} ${esc(p.last_name)}">Delete</button>
   </div>`;
 }
 function bindPlayerRows(scope = view()) {
-  $$('tr.clickable[data-id]', scope).forEach((tr) => tr.addEventListener('click', (e) => { if (!e.target.closest('button, a')) playerModal(tr.dataset.id); }));
+  $$('tr.clickable[data-id]', scope).forEach((tr) => tr.addEventListener('click', (e) => { if (!e.target.closest('button, a, input, .pick')) playerModal(tr.dataset.id); }));
   $$('[data-act]', scope).forEach((b) => b.addEventListener('click', async (e) => {
     e.stopPropagation();
     const id = b.dataset.id;
     if (b.dataset.act === 'edit') return editPlayer(id);
     if (b.dataset.act === 'remove') return removePlayer(id, b.dataset.name);
     if (b.dataset.act === 'group') return sendGroupLink(state.rows?.get(id));
-    if (b.dataset.act === 'leave') return markLeft(id, b.dataset.name);
+    if (b.dataset.act === 'leave') return markLeft([id], b.dataset.name);
     if (b.dataset.act === 'rejoin') {
       if (!confirm(`Bring ${b.dataset.name} back as an active player?`)) return;
       await guarded(async () => { await api(`/api/admin/players/${id}`, { method: 'PUT', body: { status: 'active', left_on: '', left_reason: '' } }); toast(`${b.dataset.name} is back in the squad`); refresh(); });
@@ -172,10 +173,11 @@ async function editPlayer(id) {
     bindPlayerForm(p);
   });
 }
-// Move a player to Ex-players, with the date and reason
-function markLeft(id, name) {
-  openModal(`Mark ${name} as left`, `<form id="left-form" style="display:grid;gap:14px">
-    <p class="muted" style="margin:0">${esc(name)} moves to <b>Ex-players</b>. Their details and payment history are kept, and you can bring them back any time with <b>Re-join</b>.</p>
+// Move one or more players to Ex-players (kept for records), with the date and reason
+function markLeft(ids, name) {
+  const who = ids.length === 1 ? name : `${ids.length} players`;
+  openModal(`Make ${who} ex-player${ids.length === 1 ? '' : 's'}`, `<form id="left-form" style="display:grid;gap:14px">
+    <p class="muted" style="margin:0">${esc(who)} ${ids.length === 1 ? 'moves' : 'move'} to <b>Ex-players</b> for your records. Details and payment history are kept, and you can bring anyone back with <b>↩ Re-join</b>.</p>
     <div class="grid">
       <label>Left on<input type="date" name="left_on" value="${new Date().toISOString().slice(0, 10)}" required></label>
       <label>Reason<select name="left_reason">${opts(LEFT_REASONS, 'Stopped coming')}</select></label>
@@ -185,8 +187,9 @@ function markLeft(id, name) {
   $('#left-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     await guarded(async () => {
-      await api(`/api/admin/players/${id}`, { method: 'PUT', body: { ...formData(e.target), status: 'inactive' } });
-      closeModal(); toast(`${name} moved to Ex-players`); refresh();
+      const r = await api('/api/admin/players/move-to-ex', { method: 'POST', body: { ...formData(e.target), ids } });
+      closeModal(); toast(ids.length === 1 ? `${name} moved to Ex-players` : `${r.moved} players moved to Ex-players`);
+      state.selected = new Set(); refresh();
     });
   });
 }
@@ -225,7 +228,7 @@ async function explayers() {
       <td>${p.left_on ? fmtDate(p.left_on) : '—'}</td>
       <td>${esc(p.left_reason || '—')}</td>
       <td class="num">${rowActions(p)}</td>
-    </tr>`).join('') || '<tr><td colspan="7" class="muted">No ex-players. Use <b>Mark as left</b> on the Players page when someone stops coming.</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="7" class="muted">No ex-players yet. Use <b>🗂 Make ex-player</b> on a player (or tick several on the Players page) when someone stops coming.</td></tr>';
     $('#ex-count').textContent = `${list.length} ex-player${list.length === 1 ? '' : 's'}`;
     bindPlayerRows();
   });
@@ -331,9 +334,14 @@ async function players() {
         <input type="month" name="period" value="${state.period}" title="Fee month" />
       </form>
       <div class="table-wrap"><table class="sticky-actions">
-        <thead><tr><th>Player</th><th>Age</th><th>Location</th><th>Contact</th><th>Status</th><th>Fee</th><th class="num">Actions</th></tr></thead>
-        <tbody id="player-rows"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+        <thead><tr><th class="pick"><input type="checkbox" id="pick-all" aria-label="Select all"></th><th>Player</th><th>Age</th><th>Location</th><th>Contact</th><th>Status</th><th>Fee</th><th class="num">Actions</th></tr></thead>
+        <tbody id="player-rows"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
       </table></div>
+      <div class="bulk-bar" id="bulk-bar" hidden>
+        <b id="bulk-count"></b>
+        <button class="btn btn-sm btn-primary" id="bulk-ex">🗂 Make ex-players</button>
+        <button class="btn btn-sm btn-outline" style="color:var(--navy)" id="bulk-clear">Clear selection</button>
+      </div>
       <div class="panel-body muted" id="player-count" style="font-size:13px"></div>
     </div>`;
   const load = () => guarded(async () => {
@@ -341,7 +349,21 @@ async function players() {
     const list = await api('/api/admin/players?' + playerQuery());
     if (stale(seq)) return;
     $('#csv').href = '/api/admin/players.csv?' + playerQuery();
-    $('#player-rows').innerHTML = list.map(playerRow).join('') || '<tr><td colspan="7" class="muted">No players match these filters.</td></tr>';
+    state.selected = new Set([...(state.selected || [])].filter((id) => list.some((p) => String(p.id) === id && p.status !== 'inactive')));
+    $('#player-rows').innerHTML = list.map((p) => playerRow(p, { select: true })).join('') || '<tr><td colspan="8" class="muted">No players match these filters.</td></tr>';
+    const picks = $$('[data-pick]');
+    const sync = () => {
+      const n = state.selected.size;
+      $('#bulk-bar').hidden = !n;
+      $('#bulk-count').textContent = `${n} selected`;
+      $('#pick-all').checked = picks.length > 0 && picks.every((c) => c.checked);
+      $('#pick-all').indeterminate = n > 0 && !$('#pick-all').checked;
+    };
+    picks.forEach((c) => c.addEventListener('change', () => { c.checked ? state.selected.add(c.dataset.pick) : state.selected.delete(c.dataset.pick); sync(); }));
+    $('#pick-all').onchange = (e) => { picks.forEach((c) => { c.checked = e.target.checked; c.checked ? state.selected.add(c.dataset.pick) : state.selected.delete(c.dataset.pick); }); sync(); };
+    $('#bulk-ex').onclick = () => markLeft([...state.selected], '');
+    $('#bulk-clear').onclick = () => { state.selected.clear(); picks.forEach((c) => { c.checked = false; }); sync(); };
+    sync();
     $('#player-count').textContent = `${list.length} player${list.length === 1 ? '' : 's'} · fee status for ${fmtMonth(state.period)}`;
     bindPlayerRows();
     updatePendingBadge();
@@ -414,7 +436,7 @@ async function playerModal(id) {
     const body = openModal(`${p.first_name} ${p.last_name}`, `
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
         <span class="pill group">${p.age_group} · ${p.age} yrs</span>
-        <span class="pill ${p.status}">${p.status}</span>
+        <span class="pill ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>
         ${p.position ? `<span class="pill">${esc(POSITION_LABELS[p.position] || p.position)}</span>` : ''}
         ${p.standard ? `<span class="pill">Std ${esc(p.standard)}</span>` : ''}
         ${p.blood_group ? `<span class="pill unpaid" title="Blood group">🩸 ${esc(BLOOD_LABELS[p.blood_group] || p.blood_group)}</span>` : ''}
@@ -423,6 +445,11 @@ async function playerModal(id) {
         <span class="pill">Registered ${fmtDate(p.created_at)}</span>
       </div>
       ${p.status === 'pending' ? `<div class="alert alert-ok" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">New registration — approve to make this player active.<button class="btn btn-sm btn-primary" id="approve">Approve player</button></div>` : ''}
+      ${p.status === 'inactive'
+        ? `<div class="alert ex-banner"><span>🗂 <b>Ex-player</b>${p.left_on ? ` since ${fmtDate(p.left_on)}` : ''}${p.left_reason ? ` · ${esc(p.left_reason)}` : ''}. Kept for records.</span>
+            <button class="btn btn-sm btn-primary" id="m-rejoin">↩ Re-join</button></div>`
+        : `<div class="ex-row"><button class="btn btn-sm btn-outline" style="color:var(--muted)" id="m-leave">🗂 Make ex-player</button>
+            <span class="hint">Left the club or not continuing? Keep them in Ex-players for your records.</span></div>`}
       <fieldset>
         <legend>Fees &amp; payments</legend>
         ${p.status === 'active' && !p.payments.some((x) => x.period === state.period) ? `
@@ -456,6 +483,12 @@ async function playerModal(id) {
     const wr = $('#wa-remind', body);
     if (wr) wr.addEventListener('click', () => {
       if (sendReminder(p, state.period)) { toast('WhatsApp opened — press send there'); setTimeout(() => { playerModal(p.id); refreshBehind(); }, 400); }
+    });
+    const ml = $('#m-leave', body);
+    if (ml) ml.addEventListener('click', () => markLeft([p.id], `${p.first_name} ${p.last_name}`));
+    const mr = $('#m-rejoin', body);
+    if (mr) mr.addEventListener('click', async () => {
+      await guarded(async () => { await api(`/api/admin/players/${p.id}`, { method: 'PUT', body: { status: 'active', left_on: '', left_reason: '' } }); toast(`${p.first_name} is back in the squad`); playerModal(p.id); refreshBehind(); });
     });
     const ap = $('#approve', body);
     if (ap) ap.addEventListener('click', async () => {

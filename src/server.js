@@ -424,6 +424,17 @@ admin.post('/players', wrap(async (req, res) => {
   res.json({ ok: true, id: r.lastInsertRowid });
 }));
 
+// Move players to Ex-players (kept for records): { ids: [..], left_on, left_reason }
+admin.post('/players/move-to-ex', wrap(async (req, res) => {
+  const ids = [...new Set((Array.isArray(req.body.ids) ? req.body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  if (!ids.length) return res.status(400).json({ error: 'Choose at least one player' });
+  if (ids.length > 500) return res.status(400).json({ error: 'Too many players at once (max 500)' });
+  const leftOn = isDate(req.body.left_on) ? req.body.left_on : new Date().toISOString().slice(0, 10);
+  const r = await db.run(`UPDATE players SET status = 'inactive', left_on = ?, left_reason = ? WHERE id IN (${ids.map(() => '?').join(',')}) AND status != 'inactive'`,
+    leftOn, str(req.body.left_reason, 120), ...ids);
+  res.json({ ok: true, moved: r.changes });
+}));
+
 admin.put('/players/:id', wrap(async (req, res) => {
   const existing = await db.get('SELECT * FROM players WHERE id = ?', req.params.id);
   if (!existing) return res.status(404).json({ error: 'Player not found' });
