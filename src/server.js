@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const { db, ready, hashPassword, verifyPassword, setSetting } = require('./db');
+const { sendPush, sendPushTo } = require('./push');
 
 const app = express();
 app.set('trust proxy', 1); // behind Vercel's proxy: lets secure cookies and req.ip work
@@ -126,6 +127,9 @@ async function playerFields(b, { admin }) {
     p.status = ['pending', 'active', 'inactive'].includes(b.status) ? b.status : 'active';
     p.jersey_number = num(b.jersey_number);
     p.joined_on = isDate(b.joined_on) ? b.joined_on : null;
+    // ex-players: when and why they left (cleared again when a player re-joins)
+    p.left_on = p.status === 'inactive' ? (isDate(b.left_on) ? b.left_on : new Date().toISOString().slice(0, 10)) : null;
+    p.left_reason = p.status === 'inactive' ? str(b.left_reason, 120) : null;
   }
   const errors = [];
   if (!p.first_name) errors.push('First name is required');
@@ -175,16 +179,23 @@ async function listPlayers(period) {
   return rows.map((r) => decorate(r, period));
 }
 
+// Every word typed must appear somewhere in the name, phone numbers or parent's name ("kabir sh" finds Kabir Shah)
+function matchesSearch(p, query) {
+  const hay = `${p.first_name} ${p.last_name} ${p.phone || ''} ${p.guardian_name || ''} ${p.guardian_phone || ''}`.toLowerCase();
+  const digits = hay.replace(/[\s-]/g, '');
+  return String(query).toLowerCase().split(/\s+/).filter(Boolean)
+    .every((w) => hay.includes(w) || (/^\+?\d[\d\s-]*$/.test(w) && digits.includes(w.replace(/\D/g, ''))));
+}
+
 function filterPlayers(list, q) {
   return list.filter((p) =>
     (!q.location || String(p.location_id) === String(q.location)) &&
     (!q.age_group || p.age_group === q.age_group) &&
-    (!q.status || p.status === q.status) &&
+    (!q.status || (q.status === 'current' ? p.status !== 'inactive' : p.status === q.status)) &&
     (!q.fee || p.fee_status === q.fee) &&
     (!q.source || p.registered_via === q.source) &&
     (!q.position || p.position === q.position) &&
-    (!q.q || `${p.first_name} ${p.last_name} ${p.phone || ''} ${p.guardian_name || ''} ${p.guardian_phone || ''}`
-      .toLowerCase().includes(String(q.q).toLowerCase()))
+    (!q.q || matchesSearch(p, q.q))
   );
 }
 
@@ -226,8 +237,71 @@ app.post('/api/register', wrap(async (req, res) => {
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending','form')`,
     p.first_name, p.last_name, p.dob, p.gender, p.location_id, p.position, p.standard, p.blood_group, p.phone, p.email,
     p.guardian_name, p.guardian_phone, p.address, p.notes);
+  // Alert club admins who turned on notifications (never blocks or breaks the registration)
+  try {
+    const loc = await db.get('SELECT name FROM locations WHERE id = ?', p.location_id);
+    await sendPush(settings, 'admin', {
+      title: 'New registration 📝',
+      body: `${p.first_name} ${p.last_name} · ${ageGroup(ageOn(p.dob))} · ${loc?.name || ''}`,
+      url: '/admin#registrations',
+      tag: 'registration-' + r.lastInsertRowid,
+    }, siteOrigin(req));
+  } catch (e) { console.error('[push] registration alert failed:', e.message); }
   const link = await db.get("SELECT value FROM settings WHERE key = 'wa_group_link'");
   res.json({ ok: true, id: r.lastInsertRowid, group_link: link?.value || null }); // shown on the "registration received" screen
+}));
+
+// ---------- notifications: devices turn them on / off ----------
+const siteOrigin = (req) => `${req.protocol}://${req.get('host')}`;
+function readSubscription(b) {
+  const s = b?.subscription || {};
+  const endpoint = str(s.endpoint, 1000);
+  const p256dh = str(s.keys?.p256dh, 200);
+  const auth = str(s.keys?.auth, 100);
+  if (!endpoint || !/^https:\/\//.test(endpoint) || !p256dh || !auth) return null;
+  return { endpoint, p256dh, auth };
+}
+const isAdminRequest = (req) => !!unsign(req.cookies.dfa_session);
+
+app.get('/api/push/key', (req, res) => res.json({ key: settings.vapid_public }));
+
+// Turn notifications on for this device. audience: 'public' (club news) or 'admin' (new registrations, admins only)
+app.post('/api/push/subscribe', wrap(async (req, res) => {
+  const sub = readSubscription(req.body);
+  if (!sub) return res.status(400).json({ error: 'This browser sent an invalid subscription' });
+  const audience = req.body.audience === 'admin' ? 'admin' : 'public';
+  if (audience === 'admin' && !isAdminRequest(req)) return res.status(401).json({ error: 'Please log in' });
+  const col = audience === 'admin' ? 'is_admin' : 'is_public';
+  // the centre this family follows, for "Practice today" reminders (public only; empty = club news only)
+  let loc = audience === 'public' ? num(req.body.location_id) : null;
+  if (loc != null && !(await db.get('SELECT 1 AS x FROM locations WHERE id = ?', loc))) loc = null;
+  if (audience === 'public') {
+    await db.run(`INSERT INTO push_subscriptions(endpoint, p256dh, auth, is_public, location_id) VALUES(?, ?, ?, 1, ?)
+      ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth, is_public = 1, location_id = excluded.location_id`,
+      sub.endpoint, sub.p256dh, sub.auth, loc);
+  } else {
+    await db.run(`INSERT INTO push_subscriptions(endpoint, p256dh, auth, ${col}) VALUES(?, ?, ?, 1)
+      ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth, ${col} = 1`, sub.endpoint, sub.p256dh, sub.auth);
+  }
+  res.json({ ok: true });
+}));
+
+// Turn notifications off for this device (for one audience; the row goes when neither is left)
+app.post('/api/push/unsubscribe', wrap(async (req, res) => {
+  const endpoint = str(req.body?.endpoint, 1000);
+  if (!endpoint) return res.status(400).json({ error: 'Missing endpoint' });
+  const col = req.body.audience === 'admin' ? 'is_admin' : 'is_public';
+  await db.batch([
+    [`UPDATE push_subscriptions SET ${col} = 0 WHERE endpoint = ?`, endpoint],
+    ['DELETE FROM push_subscriptions WHERE endpoint = ? AND is_public = 0 AND is_admin = 0', endpoint],
+  ]);
+  res.json({ ok: true });
+}));
+
+// Which notifications this device has turned on
+app.post('/api/push/status', wrap(async (req, res) => {
+  const row = await db.get('SELECT is_public, is_admin, location_id FROM push_subscriptions WHERE endpoint = ?', str(req.body?.endpoint, 1000) || '');
+  res.json({ public: !!row?.is_public, admin: !!row?.is_admin, location_id: row?.location_id ?? null });
 }));
 
 // ---------- auth ----------
@@ -312,7 +386,7 @@ admin.get('/players.csv', wrap(async (req, res) => {
   const period = isPeriod(req.query.period) ? req.query.period : currentPeriod();
   const rows = filterPlayers(await listPlayers(period), req.query);
   const cols = ['id', 'first_name', 'last_name', 'dob', 'age', 'age_group', 'standard', 'blood_group', 'gender', 'location_name', 'position', 'jersey_number',
-    'phone', 'email', 'guardian_name', 'guardian_phone', 'address', 'notes', 'status', 'registered_via', 'created_at', 'fee', 'period', 'fee_status', 'paid_on', 'joined_on'];
+    'phone', 'email', 'guardian_name', 'guardian_phone', 'address', 'notes', 'status', 'left_on', 'left_reason', 'registered_via', 'created_at', 'fee', 'period', 'fee_status', 'paid_on', 'joined_on'];
   const esc = (v) => {
     let s = v == null ? '' : String(v);
     if (/^[=+\-@]/.test(s)) s = "'" + s; // avoid spreadsheet formula injection
@@ -339,7 +413,7 @@ admin.get('/players/:id', wrap(async (req, res) => {
 }));
 
 const PLAYER_COLS = ['first_name', 'last_name', 'dob', 'gender', 'location_id', 'position', 'standard', 'blood_group', 'phone', 'email', 'guardian_name',
-  'guardian_phone', 'address', 'notes', 'monthly_fee', 'status', 'jersey_number', 'joined_on'];
+  'guardian_phone', 'address', 'notes', 'monthly_fee', 'status', 'jersey_number', 'joined_on', 'left_on', 'left_reason'];
 
 admin.post('/players', wrap(async (req, res) => {
   const { p, errors } = await playerFields(req.body, { admin: true });
@@ -398,6 +472,99 @@ admin.post('/players/:id/reminders', wrap(async (req, res) => {
   const period = isPeriod(req.body.period) ? req.body.period : currentPeriod();
   await db.run('INSERT INTO reminders(player_id, period, channel, phone) VALUES(?, ?, ?, ?)', player.id, period, 'whatsapp', str(req.body.phone, 30));
   res.json({ ok: true });
+}));
+
+// ---------- notifications (admin) ----------
+admin.get('/notifications', wrap(async (req, res) => {
+  const [counts, history] = await Promise.all([
+    db.get('SELECT COALESCE(SUM(is_public), 0) AS public, COALESCE(SUM(is_admin), 0) AS admin FROM push_subscriptions'),
+    db.all('SELECT * FROM notifications ORDER BY id DESC LIMIT 30'),
+  ]);
+  res.json({ subscribers: counts, history });
+}));
+
+admin.post('/notifications', wrap(async (req, res) => {
+  const title = str(req.body.title, 80);
+  const body = str(req.body.body, 300);
+  const url = str(req.body.url, 200) || '/';
+  if (!title) return res.status(400).json({ error: 'Please write a title' });
+  if (!/^\/(?!\/)[^\s]*$/.test(url)) return res.status(400).json({ error: 'Choose which page opens when the notification is tapped' });
+  const result = await sendPush(settings, 'public', { title, body, url, tag: 'news-' + Date.now() }, siteOrigin(req));
+  await db.run('INSERT INTO notifications(title, body, url, delivered, failed) VALUES(?, ?, ?, ?, ?)', title, body, url, result.delivered, result.failed);
+  res.json({ ok: true, ...result });
+}));
+
+// ---------- "Practice today" reminders, per centre ----------
+const CLUB_TZ = process.env.CLUB_TIMEZONE || 'Asia/Kolkata';
+const todayInClub = () => {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: CLUB_TZ, weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date()).map((p) => [p.type, p.value]));
+  return { weekday: parts.weekday, date: `${parts.year}-${parts.month}-${parts.day}` }; // weekday like 'Mon'
+};
+const fmt12 = (t) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}${m ? ':' + String(m).padStart(2, '0') : ''} ${h < 12 ? 'AM' : 'PM'}`; };
+const fmtRange = (a, b) => { const x = fmt12(a), y = fmt12(b); return x.slice(-2) === y.slice(-2) ? `${x.slice(0, -3)} – ${y}` : `${x} – ${y}`; };
+
+// One message per centre that has training today, e.g. "Practice today @ 5 – 7 PM (U8–U12) at Bhakshala"
+async function practiceToday(locationIds) {
+  const { weekday, date } = todayInClub();
+  const [locs, subs, s] = await Promise.all([
+    db.all('SELECT id, name, address, schedule FROM locations ORDER BY name'),
+    db.all('SELECT location_id, COUNT(*) AS n FROM push_subscriptions WHERE is_public = 1 AND location_id IS NOT NULL GROUP BY location_id'),
+    db.all("SELECT key, value FROM settings WHERE key IN ('practice_title', 'practice_message', 'practice_auto', 'practice_last_sent')"),
+  ]);
+  const cfg = Object.fromEntries(s.map((r) => [r.key, r.value]));
+  const counts = Object.fromEntries(subs.map((r) => [r.location_id, r.n]));
+  const items = locs.filter((l) => !locationIds || locationIds.includes(l.id)).map((l) => {
+    const sessions = readSchedule(l.schedule).filter((x) => x.days.includes(weekday));
+    const time = sessions.map((x) => fmtRange(x.start, x.end) + (sessions.length > 1 || (x.group && x.group !== 'All ages') ? ` (${x.group})` : '')).join(' and ');
+    const fill = (t) => (t || '').replace(/\{time\}/g, time).replace(/\{location\}/g, l.name).replace(/\{address\}/g, l.address || l.name);
+    return { location_id: l.id, location: l.name, sessions, subscribers: counts[l.id] || 0,
+      title: fill(cfg.practice_title), body: sessions.length ? fill(cfg.practice_message) : null };
+  });
+  return { weekday, date, auto: cfg.practice_auto === '1', last_sent: cfg.practice_last_sent || null,
+    title: cfg.practice_title, message: cfg.practice_message, items };
+}
+
+async function sendPracticeReminders(origin, locationIds) {
+  const p = await practiceToday(locationIds);
+  const results = [];
+  for (const it of p.items.filter((i) => i.body)) {
+    const subs = { vapid_public: settings.vapid_public, vapid_private: settings.vapid_private };
+    const r = await sendPushTo(subs, 'SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE is_public = 1 AND location_id = ?', [it.location_id],
+      { title: it.title, body: it.body, url: '/#academy', tag: `practice-${p.date}-${it.location_id}` }, origin);
+    await db.run('INSERT INTO notifications(title, body, url, delivered, failed) VALUES(?, ?, ?, ?, ?)', `${it.title} · ${it.location}`, it.body, '/#academy', r.delivered, r.failed);
+    results.push({ location: it.location, ...r });
+  }
+  await setSetting('practice_last_sent', p.date);
+  return { date: p.date, results };
+}
+
+admin.get('/practice', wrap(async (req, res) => res.json(await practiceToday())));
+
+admin.put('/practice', wrap(async (req, res) => {
+  const title = str(req.body.practice_title, 80);
+  const message = str(req.body.practice_message, 300);
+  if (!title || !message) return res.status(400).json({ error: 'Title and message are required' });
+  if (!message.includes('{time}')) return res.status(400).json({ error: 'The message must contain {time} where the practice time goes' });
+  await setSetting('practice_title', title);
+  await setSetting('practice_message', message);
+  await setSetting('practice_auto', req.body.practice_auto ? '1' : '0');
+  res.json({ ok: true });
+}));
+
+admin.post('/practice/send', wrap(async (req, res) => {
+  const ids = Array.isArray(req.body.location_ids) ? req.body.location_ids.map(Number).filter(Boolean) : null;
+  res.json({ ok: true, ...(await sendPracticeReminders(siteOrigin(req), ids)) });
+}));
+
+// Daily automatic reminders, called by Vercel Cron (vercel.json). Needs CRON_SECRET set in Vercel.
+app.get('/api/cron/practice', wrap(async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.get('authorization') !== `Bearer ${secret}`) return res.status(401).json({ error: 'Not allowed' });
+  const p = await practiceToday();
+  if (!p.auto) return res.json({ ok: true, skipped: 'automatic reminders are off' });
+  if (p.last_sent === p.date) return res.json({ ok: true, skipped: 'already sent today' });
+  res.json({ ok: true, ...(await sendPracticeReminders(siteOrigin(req))) });
 }));
 
 admin.post('/players/:id/group-link-sent', wrap(async (req, res) => {

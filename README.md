@@ -11,8 +11,15 @@ Official website for **Dreamers Football Association (Dreamers FA)**, with onlin
 **Club admin** (`/admin`)
 - **Download app**: the site can be installed on phones and computers as an app (crest icon, opens full screen). *Download app* buttons install it on Android/Chrome/Edge and show the steps on iPhone (Share → Add to Home Screen)
 - **WhatsApp group**: paste the group invite link in Admin → Settings. Parents then get a *Join our WhatsApp group* button right after registering, and *Registrations → Group link* sends it to a parent with a welcome message
+- **Notifications** (push, like any phone app): parents and players tap *🔔 Get notifications* on the website/app and choose their child's training centre.
+  - **Practice today**: each family gets the reminder for their own centre, e.g. "Practice today @ 5 – 7 PM (U8–U12) at Bhakshala", built from that centre's training timings for today (India time). Send it from Admin → Notifications, or turn on *Send automatically every morning at 7:30 AM* (needs `CRON_SECRET`, see below)
+  - **Announcements**: write a title and message (or start from *Latest news*, *Next match*, *Training cancelled*, *Registrations open*), choose which page opens when tapped, and send to everyone
+  - **Admin alerts**: in Admin → Notifications, *Turn on alerts* on your phone to be notified of every new registration
+  - On iPhone, notifications work once the app is added to the Home Screen (iOS 16.4+)
 - **Registrations**: every form parents submit appears here automatically, with all details in one table (submitted date, player, birth date and age, standard, blood group, position, centre, parent and mobile, medical notes). Each row has **Approve**, **Edit** and **Delete**. Use *Copy form link* / *Share form* to send the form to parents on WhatsApp, and *Export* to get a spreadsheet
 - **Dashboard**: active / pending players, paid vs unpaid for any month, money collected and outstanding, breakdown by location and age group
+- **Find any player**: the search box above every admin page finds anyone (new, active or ex-player) by name, phone or parent's name
+- **Ex-players**: *Mark as left* moves a player to the Ex-players list with the date and reason; their details and payments are kept, and *↩ Re-join* brings them back
 - **Players**: search and filter by location, age group (U8–U18, Senior), status and fee status; add, edit, approve and delete players; export to CSV (opens in Excel)
 - **Fees**: pick a month and mark each player **paid / unpaid** with one click; full payment history per player (amount, date, Cash/UPI/Bank…); per-player fee override for discounts or scholarships
 - **WhatsApp fee reminders**: a *Remind* button next to every unpaid player and a *Remind unpaid* list for the whole month. WhatsApp (app or WhatsApp Web) opens with a personalised message, already addressed to the guardian for under-18s and to the player for adults; you press send. Each reminder is logged ("Reminded 2× · 21 Nov"). Edit the message and the default country code in Admin → Settings. It uses free click-to-chat links, so no WhatsApp Business account is needed
@@ -67,6 +74,7 @@ Vercel doesn't keep files between requests, so the live site stores its data in 
    | `TURSO_AUTH_TOKEN` | the token from step 1 |
    | `ADMIN_USER` | your admin username, e.g. `admin` |
    | `ADMIN_PASSWORD` | a strong password; this is your admin login |
+   | `CRON_SECRET` | optional: any long random text. Needed only for the automatic 7:30 AM practice reminders (Vercel Cron uses it) |
 
 4. **Deploy.** The tables, the three centres and the admin account are created automatically on the first visit.
    Open `https://<your-project>.vercel.app/admin` and log in.

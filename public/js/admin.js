@@ -2,6 +2,9 @@
 const state = { locations: [], period: new Date().toISOString().slice(0, 7), view: 'dashboard', filters: {} };
 const AGE_GROUPS = ['U8', 'U10', 'U12', 'U14', 'U16', 'U18', 'Senior'];
 const view = () => $('#view');
+const STATUS_LABEL = { pending: 'new', active: 'active', inactive: 'ex-player' };
+const LEFT_REASONS = ['Stopped coming', 'Moved away', 'Joined another club', 'Studies / exams', 'Injury', 'Fees', 'Other'];
+
 const feeText = (n) => (n > 0 ? money(n) : '—'); // fees are optional; show a dash when none is set
 
 function toast(msg, isError) {
@@ -52,7 +55,7 @@ async function start(username) {
   $('#who').textContent = username;
   [state.locations, state.wa] = await Promise.all([api('/api/locations'), api('/api/admin/settings')]);
   const v = location.hash.slice(1);
-  go(['dashboard', 'registrations', 'players', 'fees', 'locations', 'news', 'fixtures', 'settings'].includes(v) ? v : 'dashboard');
+  go(['dashboard', 'registrations', 'notifications', 'players', 'explayers', 'fees', 'locations', 'news', 'fixtures', 'settings'].includes(v) ? v : 'dashboard');
 }
 $$('.sidebar .nav-item').forEach((b) => b.addEventListener('click', () => { go(b.dataset.view); $('.sidebar').classList.remove('open'); }));
 
@@ -65,7 +68,7 @@ function go(v) {
   state.view = v;
   history.replaceState(null, '', '#' + v);
   $$('.sidebar .nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
-  ({ dashboard, registrations, players, fees, locations: locationsView, news: newsView, fixtures: fixturesView, settings })[v]();
+  ({ dashboard, registrations, notifications: notificationsView, players, explayers, fees, locations: locationsView, news: newsView, fixtures: fixturesView, settings })[v]();
 }
 const refresh = () => go(state.view);
 
@@ -127,7 +130,7 @@ function playerRow(p) {
     <td><span class="pill group">${p.age_group}</span> <span class="sub">${p.age} yrs</span></td>
     <td>${esc(p.location_name || '—')}</td>
     <td><div>${esc(p.phone || p.guardian_phone || '—')}</div><div class="sub">${esc(p.guardian_name || '')}</div></td>
-    <td><span class="pill ${p.status}">${p.status}</span></td>
+    <td><span class="pill ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>${p.left_on ? `<div class="sub">left ${fmtDate(p.left_on)}</div>` : ''}</td>
     <td><span class="pill ${p.fee_status}">${p.fee_status === 'n/a' ? '—' : p.fee_status}</span> ${p.fee > 0 ? `<span class="sub">${money(p.fee)}</span>` : ''}</td>
     <td class="num">${rowActions(p)}</td>
   </tr>`;
@@ -137,6 +140,8 @@ function rowActions(p, { group } = {}) {
   return `<div class="row-actions">
     ${group ? `<button class="btn btn-sm btn-wa" data-act="group" data-id="${p.id}" title="Send the WhatsApp group link to the parent">${waIcon} Group link</button>` : ''}
     ${p.status === 'pending' ? `<button class="btn btn-sm btn-primary" data-act="approve" data-id="${p.id}">✓ Approve</button>` : ''}
+    ${p.status === 'active' ? `<button class="btn btn-sm btn-outline" style="color:var(--muted)" data-act="leave" data-id="${p.id}" data-name="${esc(p.first_name)} ${esc(p.last_name)}" title="Move to Ex-players">Mark as left</button>` : ''}
+    ${p.status === 'inactive' ? `<button class="btn btn-sm btn-primary" data-act="rejoin" data-id="${p.id}" data-name="${esc(p.first_name)} ${esc(p.last_name)}">↩ Re-join</button>` : ''}
     <button class="btn btn-sm btn-outline" style="color:var(--navy)" data-act="edit" data-id="${p.id}">✎ Edit</button>
     <button class="btn btn-sm btn-outline" style="color:var(--bad)" data-act="remove" data-id="${p.id}" data-name="${esc(p.first_name)} ${esc(p.last_name)}">Delete</button>
   </div>`;
@@ -149,6 +154,11 @@ function bindPlayerRows(scope = view()) {
     if (b.dataset.act === 'edit') return editPlayer(id);
     if (b.dataset.act === 'remove') return removePlayer(id, b.dataset.name);
     if (b.dataset.act === 'group') return sendGroupLink(state.rows?.get(id));
+    if (b.dataset.act === 'leave') return markLeft(id, b.dataset.name);
+    if (b.dataset.act === 'rejoin') {
+      if (!confirm(`Bring ${b.dataset.name} back as an active player?`)) return;
+      await guarded(async () => { await api(`/api/admin/players/${id}`, { method: 'PUT', body: { status: 'active', left_on: '', left_reason: '' } }); toast(`${b.dataset.name} is back in the squad`); refresh(); });
+    }
     if (b.dataset.act === 'approve') {
       b.disabled = true;
       await guarded(async () => { await api(`/api/admin/players/${id}`, { method: 'PUT', body: { status: 'active' } }); toast('Approved — player is now active'); refresh(); });
@@ -162,6 +172,72 @@ async function editPlayer(id) {
     bindPlayerForm(p);
   });
 }
+// Move a player to Ex-players, with the date and reason
+function markLeft(id, name) {
+  openModal(`Mark ${name} as left`, `<form id="left-form" style="display:grid;gap:14px">
+    <p class="muted" style="margin:0">${esc(name)} moves to <b>Ex-players</b>. Their details and payment history are kept, and you can bring them back any time with <b>Re-join</b>.</p>
+    <div class="grid">
+      <label>Left on<input type="date" name="left_on" value="${new Date().toISOString().slice(0, 10)}" required></label>
+      <label>Reason<select name="left_reason">${opts(LEFT_REASONS, 'Stopped coming')}</select></label>
+    </div>
+    <div class="modal-foot"><span></span><button class="btn btn-primary">Move to Ex-players</button></div>
+  </form>`);
+  $('#left-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await guarded(async () => {
+      await api(`/api/admin/players/${id}`, { method: 'PUT', body: { ...formData(e.target), status: 'inactive' } });
+      closeModal(); toast(`${name} moved to Ex-players`); refresh();
+    });
+  });
+}
+
+// ---------- ex-players (left the club / not continuing) ----------
+async function explayers() {
+  const seq = viewSeq;
+  const f = state.exFilters || (state.exFilters = {});
+  view().innerHTML = `
+    <div class="page-head"><h1>Ex-players</h1>
+      <div class="actions"><a class="btn btn-sm btn-outline" style="color:var(--navy)" id="ex-csv">⬇ Export</a></div></div>
+    <p class="muted" style="margin-top:-8px">Players who left the club or are not continuing. Their details and payment history are kept. Use <b>↩ Re-join</b> to bring someone back.</p>
+    <div class="panel">
+      <form class="filters" id="ex-filters">
+        <input type="search" name="q" placeholder="Search name or phone…" value="${esc(f.q || '')}" />
+        <select name="location">${locOpts(f.location, 'All centres')}</select>
+        <select name="age_group">${opts(AGE_GROUPS, f.age_group, 'All ages')}</select>
+      </form>
+      <div class="table-wrap"><table class="sticky-actions">
+        <thead><tr><th>Player</th><th>Age</th><th>Centre</th><th>Contact</th><th>Left on</th><th>Reason</th><th class="num">Actions</th></tr></thead>
+        <tbody id="ex-rows"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+      </table></div>
+      <div class="panel-body muted" id="ex-count" style="font-size:13px"></div>
+    </div>`;
+  const load = () => guarded(async () => {
+    if (stale(seq)) return;
+    const q = new URLSearchParams({ status: 'inactive', ...Object.fromEntries(Object.entries(f).filter(([, v]) => v)) });
+    const list = (await api('/api/admin/players?' + q)).sort((a, b) => (b.left_on || '').localeCompare(a.left_on || ''));
+    if (stale(seq)) return;
+    $('#ex-csv').href = '/api/admin/players.csv?' + q;
+    $('#ex-rows').innerHTML = list.map((p) => `<tr class="clickable" data-id="${p.id}">
+      <td><div class="name">${esc(p.first_name)} ${esc(p.last_name)}</div><div class="sub">${esc(p.position || '')}${p.standard ? ' · Std ' + esc(p.standard) : ''}</div></td>
+      <td><span class="pill group">${p.age_group}</span> <span class="sub">${p.age} yrs</span></td>
+      <td>${esc(p.location_name || '—')}</td>
+      <td><div>${esc(p.guardian_phone || p.phone || '—')}</div><div class="sub">${esc(p.guardian_name || '')}</div></td>
+      <td>${p.left_on ? fmtDate(p.left_on) : '—'}</td>
+      <td>${esc(p.left_reason || '—')}</td>
+      <td class="num">${rowActions(p)}</td>
+    </tr>`).join('') || '<tr><td colspan="7" class="muted">No ex-players. Use <b>Mark as left</b> on the Players page when someone stops coming.</td></tr>';
+    $('#ex-count').textContent = `${list.length} ex-player${list.length === 1 ? '' : 's'}`;
+    bindPlayerRows();
+  });
+  let t;
+  $('#ex-filters').addEventListener('input', (e) => {
+    Object.assign(f, formData($('#ex-filters')));
+    clearTimeout(t); t = setTimeout(load, e.target.type === 'search' ? 250 : 0);
+  });
+  $('#ex-filters').addEventListener('submit', (e) => e.preventDefault());
+  load();
+}
+
 async function removePlayer(id, name) {
   if (!confirm(`Delete ${name}? This removes their registration, details and payment records. It cannot be undone.`)) return;
   await guarded(async () => { await api(`/api/admin/players/${id}`, { method: 'DELETE' }); toast(`${name} deleted`); refresh(); });
@@ -187,7 +263,7 @@ async function registrations() {
     <p class="muted" style="margin-top:-8px">Every form parents submit at <a href="/register" target="_blank">${esc(formUrl)}</a> appears here automatically. Approve to add the player to the squad.</p>
     <div class="panel">
       <form class="filters" id="reg-filters">
-        <select name="status">${opts([['pending', 'New (waiting for approval)'], ['active', 'Approved'], ['inactive', 'Inactive']], f.status, 'All registrations')}</select>
+        <select name="status">${opts([['pending', 'New (waiting for approval)'], ['active', 'Approved'], ['inactive', 'Ex-players']], f.status, 'All registrations')}</select>
         <select name="location">${locOpts(f.location, 'All centres')}</select>
         <select name="position">${opts(POSITIONS.map((v) => [v, POSITION_LABELS[v] || v]), f.position, 'All positions')}</select>
         <input type="search" name="q" placeholder="Search name or phone…" value="${esc(f.q || '')}" />
@@ -218,7 +294,7 @@ async function registrations() {
       <td>${esc(p.location_name || '—')}</td>
       <td><div>${esc(p.guardian_name || '—')}</div><div class="sub">${esc(p.guardian_phone || p.phone || '')}</div></td>
       <td class="clip" title="${esc(p.notes || '')}">${esc(p.notes || '—')}</td>
-      <td><span class="pill ${p.status}">${p.status === 'pending' ? 'new' : p.status === 'active' ? 'approved' : p.status}</span>${p.group_link_sent_at ? `<div class="sub">✓ Group link sent ${fmtDate(fromSqlUtc(p.group_link_sent_at), { day: 'numeric', month: 'short' })}</div>` : ''}</td>
+      <td><span class="pill ${p.status}">${p.status === 'pending' ? 'new' : p.status === 'active' ? 'approved' : 'ex-player'}</span>${p.group_link_sent_at ? `<div class="sub">✓ Group link sent ${fmtDate(fromSqlUtc(p.group_link_sent_at), { day: 'numeric', month: 'short' })}</div>` : ''}</td>
       <td class="num">${rowActions(p, { group: true })}</td>
     </tr>`).join('') || '<tr><td colspan="11" class="muted">No registrations here yet. Share the form link with parents to get started.</td></tr>';
     $('#reg-count').textContent = `${list.length} registration${list.length === 1 ? '' : 's'}`;
@@ -236,6 +312,7 @@ async function registrations() {
 
 async function players() {
   const seq = viewSeq;
+  if (!('status' in state.filters)) state.filters.status = 'current';
   const f = state.filters;
   view().innerHTML = `
     <div class="page-head"><h1>Players</h1>
@@ -249,7 +326,7 @@ async function players() {
         <input type="search" name="q" placeholder="Search name or phone…" value="${esc(f.q || '')}" />
         <select name="location">${locOpts(f.location, 'All locations')}</select>
         <select name="age_group">${opts(AGE_GROUPS, f.age_group, 'All ages')}</select>
-        <select name="status">${opts([['active', 'Active'], ['pending', 'Pending'], ['inactive', 'Inactive']], f.status, 'Any status')}</select>
+        <select name="status">${opts([['current', 'Current players'], ['active', 'Active'], ['pending', 'New (waiting)'], ['inactive', 'Ex-players']], f.status, 'Everyone (incl. ex-players)')}</select>
         <select name="fee">${opts([['paid', 'Paid'], ['unpaid', 'Unpaid']], f.fee, 'Any fee status')}</select>
         <input type="month" name="period" value="${state.period}" title="Fee month" />
       </form>
@@ -294,7 +371,10 @@ function playerFormHtml(p = {}) {
       <label>Position<select name="position">${opts(POSITIONS.map((v) => [v, POSITION_LABELS[v] || v]), p.position, '—')}</select></label>
       <label>Standard (class)<select name="standard">${opts(STANDARDS, p.standard, '—')}</select></label>
       <label>Blood group<select name="blood_group">${opts(BLOOD_GROUPS.map((v) => [v, BLOOD_LABELS[v] || v]), p.blood_group, '—')}</select></label>
-      <label>Status<select name="status">${opts([['active', 'Active'], ['pending', 'Pending'], ['inactive', 'Inactive']], p.status || 'active')}</select></label>
+      <label>Status<select name="status">${opts([['active', 'Active'], ['pending', 'New (waiting for approval)'], ['inactive', 'Ex-player (left the club)']], p.status || 'active')}</select></label>
+      ${p.status === 'inactive' ? `<label>Left on<input type="date" name="left_on" value="${esc(p.left_on)}"></label>
+      <label>Reason for leaving<input name="left_reason" value="${esc(p.left_reason)}" list="left-reasons"></label>
+      <datalist id="left-reasons">${LEFT_REASONS.map((r) => `<option value="${r}">`).join('')}</datalist>` : ''}
       <label>Jersey number<input type="number" min="0" max="99" name="jersey_number" value="${esc(p.jersey_number)}"></label>
       <label>Monthly fee override<input type="number" min="0" step="any" name="monthly_fee" value="${esc(p.monthly_fee)}" placeholder="Use location fee"><span class="hint">Leave empty to use the location's fee (e.g. set a discount or scholarship here).</span></label>
       <label>Joined on<input type="date" name="joined_on" value="${esc(p.joined_on)}"></label>
@@ -721,6 +801,145 @@ async function fixturesView() {
   });
 }
 
+// ---------- notifications ----------
+const NOTIFY_PAGES = [['/', 'Home page'], ['/#news', 'News'], ['/#fixtures', 'Fixtures & results'], ['/#academy', 'Training centres & timings'], ['/register', 'Registration form']];
+async function notificationsView() {
+  const seq = viewSeq;
+  await guarded(async () => {
+    const [data, news, fixtures, practice] = await Promise.all([api('/api/admin/notifications'), api('/api/news?limit=1'), api('/api/fixtures'), api('/api/admin/practice')]);
+    if (stale(seq)) return;
+    const n = data.subscribers.public;
+    const next = fixtures.find((f) => f.score_us == null && new Date(f.match_date) >= Date.now());
+    const quick = {
+      news: news[0] && { title: news[0].title, body: news[0].summary || '', url: '/#news' },
+      match: next && { title: `Matchday: Dreamers FA ${next.team} vs ${next.opponent} ⚽`, body: `${fmtDateTime(next.match_date)}${next.venue ? ' · ' + next.venue : ''}. Come and support the team!`, url: '/#fixtures' },
+      cancel: { title: 'Training cancelled today 🌧️', body: 'Today’s training is cancelled due to rain. See you at the next session!', url: '/#academy' },
+      open: { title: 'Registrations are open 📝', body: 'Register your child for Dreamers FA in 2 minutes.', url: '/register' },
+    };
+    view().innerHTML = `
+      <div class="page-head"><h1>Notifications</h1></div>
+      <div class="kpis">
+        <div class="kpi"><span>People with notifications on</span><b>${n}</b></div>
+        <div class="kpi"><span>Admin devices getting alerts</span><b>${data.subscribers.admin}</b></div>
+      </div>
+      <div class="panel" id="practice-panel">
+        <div class="panel-head"><h3>Practice today · ${esc(practice.weekday)} ${fmtDate(practice.date, { day: 'numeric', month: 'short' })}</h3>
+          <button class="btn btn-sm btn-primary" id="pr-send" ${practice.items.some((i) => i.body && i.subscribers) ? '' : 'disabled'}>🔔 Send practice reminders</button></div>
+        <div class="panel-body">
+          <p class="muted" style="margin-top:0">Each family gets the reminder for <b>their own centre</b>, with that centre’s time from today’s training timings (Locations).
+            ${practice.last_sent === practice.date ? '<b style="color:var(--ok)">✓ Sent today.</b>' : ''}</p>
+          <div class="pr-grid">${practice.items.map((i) => `<div class="pr-card ${i.body ? '' : 'off'}">
+            <div class="pr-head"><b>${esc(i.location)}</b><span class="pill">${i.subscribers} ${i.subscribers === 1 ? 'family' : 'families'}</span></div>
+            ${i.body ? `<div class="nt-preview"><img src="/img/icon-192.png" alt=""><div><b>${esc(i.title)}</b><span>${esc(i.body)}</span></div></div>`
+              : `<p class="muted" style="margin:6px 0 0">No training on ${esc(practice.weekday)} in this centre’s timings, so no reminder is sent.</p>`}
+          </div>`).join('')}</div>
+          <details class="pr-settings"><summary>Message &amp; automatic sending</summary>
+            <form id="pr-form" style="display:grid;gap:12px;margin-top:12px">
+              <div id="pr-alert"></div>
+              <label>Title<input name="practice_title" maxlength="80" value="${esc(practice.title)}"></label>
+              <label>Message<input name="practice_message" maxlength="300" value="${esc(practice.message)}">
+                <span class="hint">{time} = today’s session time(s), {location} = centre name, {address} = centre address.</span></label>
+              <label class="check"><input type="checkbox" name="practice_auto" ${practice.auto ? 'checked' : ''}> Send automatically every morning at 7:30 AM (on the live site)</label>
+              <button class="btn btn-sm btn-primary" style="justify-self:start">Save</button>
+            </form></details>
+        </div>
+      </div>
+      <div class="cols-2">
+        <div class="panel"><div class="panel-head"><h3>Send a notification</h3></div>
+          <form class="panel-body" id="nt-form" style="display:grid;gap:14px">
+            <div id="nt-alert"></div>
+            <div class="nt-quick"><span class="hint">Quick start:</span>
+              ${quick.news ? '<button type="button" class="btn btn-sm btn-outline" style="color:var(--navy)" data-q="news">📰 Latest news</button>' : ''}
+              ${quick.match ? '<button type="button" class="btn btn-sm btn-outline" style="color:var(--navy)" data-q="match">⚽ Next match</button>' : ''}
+              <button type="button" class="btn btn-sm btn-outline" style="color:var(--navy)" data-q="cancel">🌧️ Training cancelled</button>
+              <button type="button" class="btn btn-sm btn-outline" style="color:var(--navy)" data-q="open">📝 Registrations open</button>
+            </div>
+            <label><span>Title <span class="req">*</span></span><input name="title" maxlength="80" required placeholder="e.g. Training cancelled today"></label>
+            <label>Message<textarea name="body" maxlength="300" placeholder="A short message (up to 300 characters)"></textarea></label>
+            <label>When tapped, open<select name="url">${opts(NOTIFY_PAGES, '/')}</select></label>
+            <div><div class="hint" style="margin-bottom:6px">Preview</div>
+              <div class="nt-preview"><img src="/img/icon-192.png" alt=""><div><b id="nt-p-title">Title</b><span id="nt-p-body"></span><small>Dreamers FA · now</small></div></div></div>
+            <button class="btn btn-primary" style="justify-self:start" ${n ? '' : 'disabled'}>🔔 Send to ${n} ${n === 1 ? 'person' : 'people'}</button>
+            ${n ? '' : '<p class="hint" style="margin:0">Nobody has turned on notifications yet. Share the website or app and ask parents to tap <b>🔔 Get notifications</b>.</p>'}
+          </form></div>
+        <div>
+          <div class="panel"><div class="panel-head"><h3>Alerts on this device</h3></div>
+            <div class="panel-body" style="display:grid;gap:10px">
+              <p style="margin:0">Get a notification on this phone or computer whenever a parent submits the registration form.</p>
+              <button class="btn btn-primary" id="admin-push" style="justify-self:start">…</button>
+              <div class="hint" id="admin-push-note"></div>
+            </div></div>
+          <div class="panel"><div class="panel-head"><h3>Sent</h3></div>
+            ${data.history.map((h) => `<div class="list-item"><div><div class="name">${esc(h.title)}</div><div class="sub">${esc(h.body || '')}</div>
+              <div class="sub">${fmtDateTime(fromSqlUtc(h.sent_at))} · delivered to ${h.delivered}${h.failed ? `, ${h.failed} failed` : ''}</div></div></div>`).join('') || '<div class="panel-body muted">Nothing sent yet.</div>'}
+          </div>
+        </div>
+      </div>`;
+    const form = $('#nt-form');
+    const preview = () => { $('#nt-p-title').textContent = form.title.value || 'Title'; $('#nt-p-body').textContent = form.body.value; };
+    form.addEventListener('input', preview); preview();
+    $$('[data-q]', form).forEach((b) => b.addEventListener('click', () => {
+      const q = quick[b.dataset.q];
+      form.title.value = q.title.slice(0, 80); form.body.value = q.body.slice(0, 300); form.url.value = q.url; preview();
+    }));
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const d = formData(form);
+      if (!confirm(`Send “${d.title}” to ${n} ${n === 1 ? 'person' : 'people'}?`)) return;
+      const btn = $('button:not([type])', form); btn.disabled = true; btn.textContent = 'Sending…';
+      try {
+        const r = await api('/api/admin/notifications', { method: 'POST', body: d });
+        toast(`Sent to ${r.delivered} ${r.delivered === 1 ? 'device' : 'devices'}${r.failed ? ` (${r.failed} could not be reached)` : ''}`);
+        refresh();
+      } catch (err) { $('#nt-alert').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; btn.disabled = false; btn.textContent = `🔔 Send to ${n} ${n === 1 ? 'person' : 'people'}`; }
+    });
+    // practice reminders
+    $('#pr-send').addEventListener('click', async () => {
+      const targets = practice.items.filter((i) => i.body && i.subscribers);
+      if (!confirm(`Send today’s practice reminder to ${targets.map((i) => `${i.location} (${i.subscribers})`).join(', ')}?`)) return;
+      $('#pr-send').disabled = true;
+      try {
+        const r = await api('/api/admin/practice/send', { method: 'POST', body: {} });
+        const total = r.results.reduce((s, x) => s + x.delivered, 0);
+        toast(`Practice reminders sent to ${total} ${total === 1 ? 'device' : 'devices'}`);
+        refresh();
+      } catch (err) { toast(err.message, true); $('#pr-send').disabled = false; }
+    });
+    $('#pr-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const d = formData(e.target);
+      try {
+        await api('/api/admin/practice', { method: 'PUT', body: { ...d, practice_auto: !!d.practice_auto } });
+        toast('Practice reminder settings saved'); refresh();
+      } catch (err) { $('#pr-alert').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
+    });
+    // this device: new-registration alerts
+    const ab = $('#admin-push');
+    const showState = async () => {
+      let on = false;
+      try { on = pushSupported() && (await pushStatus()).admin; } catch {}
+      if (stale(seq)) return;
+      ab.dataset.on = on ? '1' : '';
+      ab.textContent = on ? '✓ Alerts on — turn off' : '🔔 Turn on alerts';
+      ab.className = on ? 'btn btn-outline' : 'btn btn-primary';
+      if (on) ab.style.color = 'var(--navy)'; else ab.style.color = '';
+      $('#admin-push-note').innerHTML = !pushSupported()
+        ? (isIOS() && !isInstalled() ? 'On iPhone: add the app to your Home Screen first (sidebar → <b>Install app</b>), then open it and turn alerts on.' : 'This browser can’t show notifications. Use Chrome, Edge or the installed app.')
+        : on ? 'You’ll get an alert for every new registration on this device.' : '';
+    };
+    ab.addEventListener('click', async () => {
+      ab.disabled = true;
+      try {
+        if (ab.dataset.on) { await disablePush('admin'); toast('Alerts turned off on this device'); }
+        else { await enablePush('admin'); toast('Alerts on — you’ll be notified of new registrations'); }
+      } catch (err) {
+        if (err.message === 'ios-install') showInstallHelp(IOS_NOTIFY_NOTE); else toast(err.message, true);
+      } finally { ab.disabled = false; showState(); }
+    });
+    showState();
+  });
+}
+
 // ---------- settings ----------
 function settings() {
   view().innerHTML = `
@@ -790,6 +1009,43 @@ function settings() {
     catch (err) { $('#pw-alert').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
   });
 }
+
+// ---------- find any player (search bar above every page) ----------
+(function setupFind() {
+  const input = $('#find'), box = $('#find-results');
+  let t, seq = 0, results = [];
+  const close = () => { box.hidden = true; };
+  const where = (p) => (p.status === 'inactive' ? 'Ex-player' : p.status === 'pending' ? 'New registration' : 'Active');
+  async function search() {
+    const q = input.value.trim();
+    if (q.length < 2) { close(); return; }
+    const mine = ++seq;
+    try {
+      results = await api('/api/admin/players?' + new URLSearchParams({ q }));
+    } catch (e) { if (e.status === 401) showLogin(); return; }
+    if (mine !== seq) return; // a newer search is running
+    box.innerHTML = results.slice(0, 8).map((p, i) => `<button type="button" class="find-item" data-i="${i}">
+        <span><b>${esc(p.first_name)} ${esc(p.last_name)}</b><small>${p.age} yrs · ${esc(p.location_name || 'No centre')}${p.guardian_name ? ' · ' + esc(p.guardian_name) : ''}</small></span>
+        <span class="pill ${p.status}">${where(p)}</span></button>`).join('')
+      + (results.length > 8 ? `<button type="button" class="find-item find-all">See all ${results.length} results →</button>` : '')
+      + (results.length ? '' : `<div class="find-empty">No player found for “${esc(q)}”</div>`);
+    box.hidden = false;
+  }
+  input.addEventListener('input', () => { clearTimeout(t); t = setTimeout(search, 200); });
+  input.addEventListener('focus', () => { if (input.value.trim().length >= 2) search(); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { close(); input.blur(); }
+    if (e.key === 'Enter' && results[0]) { e.preventDefault(); close(); playerModal(results[0].id); }
+  });
+  box.addEventListener('click', (e) => {
+    const b = e.target.closest('.find-item');
+    if (!b) return;
+    close();
+    if (b.classList.contains('find-all')) { state.filters = { status: '', q: input.value.trim() }; go('players'); return; }
+    playerModal(results[b.dataset.i].id);
+  });
+  document.addEventListener('click', (e) => { if (!e.target.closest('.global-search')) close(); });
+})();
 
 // ---------- boot ----------
 api('/api/admin/me').then((m) => start(m.username)).catch(showLogin);
