@@ -4,6 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="/img/favicon.png" type="image/png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Dreamers FA" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#0a1f44" />
   <meta name="description" content="Official player registration form of Dreamers Football Association." />
   <meta property="og:title" content="Dreamers FA — Player Registration Form" />
@@ -73,14 +79,20 @@
       <div class="tick">✓</div>
       <h2>Registration received!</h2>
       <p>Thank you. The club will contact you on WhatsApp to confirm your first session.</p>
+      <div id="reg-group" class="group-join" hidden>
+        <b>Join our WhatsApp group</b>
+        <span>Get training updates and club announcements.</span>
+        <a class="btn btn-wa" id="reg-group-link" href="#" target="_blank" rel="noopener">Join WhatsApp group</a>
+      </div>
       <div id="reg-summary" class="reg-summary"></div>
       <p style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
         <a class="btn btn-primary" href="/register">Register another player</a>
         <a class="btn btn-outline" style="color:var(--navy)" href="/">Visit club website</a>
+        <a class="btn btn-outline" style="color:var(--navy)" href="#" data-install>📲 Download app</a>
       </p>
     </div>
 
-    <footer class="regform-foot">© <span id="year"></span> Dreamers Football Association · <a href="/">Club website</a></footer>
+    <footer class="regform-foot">© <span id="year"></span> Dreamers Football Association · <a href="/">Club website</a> · <a href="#" data-install>Download the app</a></footer>
   </main>
   <script src="/js/common.js"></script>
   <script src="/js/register.js"></script>

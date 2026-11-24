@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS players (
   standard TEXT,
   blood_group TEXT,
   registered_via TEXT,
+  group_link_sent_at TEXT,
   joined_on TEXT,
   notes TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -155,6 +156,16 @@ The {month} training fee for {player} ({location}) is still pending. Please pay 
 
 If you have already paid, please ignore this message. Thank you!`;
 
+const DEFAULT_GROUP_MESSAGE = `Hello {guardian},
+
+Welcome to Dreamers Football Association! ⚽💙
+We have received {player}'s registration for {location}.
+
+Please join our WhatsApp group for training updates and announcements:
+{link}
+
+One Team. One Dream.`;
+
 // The club's training centres (fees and timings are set in Admin > Locations)
 const CLUB_LOCATIONS = [
   ['Bhakshala', 'Dombivli (W)'],
@@ -174,6 +185,7 @@ async function init() {
   const playerCols = await cols('players');
   if (!playerCols.includes('standard')) await db.run('ALTER TABLE players ADD COLUMN standard TEXT'); // school class, e.g. "5th"
   if (!playerCols.includes('blood_group')) await db.run('ALTER TABLE players ADD COLUMN blood_group TEXT');
+  if (!playerCols.includes('group_link_sent_at')) await db.run('ALTER TABLE players ADD COLUMN group_link_sent_at TEXT'); // when the WhatsApp group link was sent
   if (!playerCols.includes('registered_via')) { // 'form' = parent used the registration form, 'admin' = added by the club
     await db.run('ALTER TABLE players ADD COLUMN registered_via TEXT');
     await db.run("UPDATE players SET registered_via = CASE WHEN status = 'pending' THEN 'form' ELSE 'admin' END");
@@ -188,6 +200,7 @@ async function init() {
     await set('wa_template', settings.wa_template.replace(' of {amount} is still pending', ' is still pending'));
   }
   if (!settings.wa_template_v2) await set('wa_template_v2', '1');
+  if (!settings.wa_group_message) await set('wa_group_message', DEFAULT_GROUP_MESSAGE);
   if (!settings.wa_country_code) await set('wa_country_code', process.env.WA_COUNTRY_CODE || '91');
 
   // First admin account. On the live site a password must be provided (never the default one).

@@ -56,7 +56,12 @@ async function start(username) {
 }
 $$('.sidebar .nav-item').forEach((b) => b.addEventListener('click', () => { go(b.dataset.view); $('.sidebar').classList.remove('open'); }));
 
+// Each page load gets a number; an older page that finishes loading after you moved on is ignored.
+let viewSeq = 0;
+const stale = (seq) => seq !== viewSeq;
+
 function go(v) {
+  viewSeq++;
   state.view = v;
   history.replaceState(null, '', '#' + v);
   $$('.sidebar .nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
@@ -72,8 +77,10 @@ async function updatePendingBadge() {
 
 // ---------- dashboard ----------
 async function dashboard() {
+  const seq = viewSeq;
   await guarded(async () => {
     const d = await api('/api/admin/dashboard?period=' + state.period);
+    if (stale(seq)) return;
     updatePendingBadge();
     const maxAg = Math.max(1, ...d.byAgeGroup.map((a) => a.players));
     view().innerHTML = `
@@ -126,8 +133,9 @@ function playerRow(p) {
   </tr>`;
 }
 // Edit / Delete (and Approve for new registrations) buttons used in every player table
-function rowActions(p) {
+function rowActions(p, { group } = {}) {
   return `<div class="row-actions">
+    ${group ? `<button class="btn btn-sm btn-wa" data-act="group" data-id="${p.id}" title="Send the WhatsApp group link to the parent">${waIcon} Group link</button>` : ''}
     ${p.status === 'pending' ? `<button class="btn btn-sm btn-primary" data-act="approve" data-id="${p.id}">✓ Approve</button>` : ''}
     <button class="btn btn-sm btn-outline" style="color:var(--navy)" data-act="edit" data-id="${p.id}">✎ Edit</button>
     <button class="btn btn-sm btn-outline" style="color:var(--bad)" data-act="remove" data-id="${p.id}" data-name="${esc(p.first_name)} ${esc(p.last_name)}">Delete</button>
@@ -140,6 +148,7 @@ function bindPlayerRows(scope = view()) {
     const id = b.dataset.id;
     if (b.dataset.act === 'edit') return editPlayer(id);
     if (b.dataset.act === 'remove') return removePlayer(id, b.dataset.name);
+    if (b.dataset.act === 'group') return sendGroupLink(state.rows?.get(id));
     if (b.dataset.act === 'approve') {
       b.disabled = true;
       await guarded(async () => { await api(`/api/admin/players/${id}`, { method: 'PUT', body: { status: 'active' } }); toast('Approved — player is now active'); refresh(); });
@@ -164,6 +173,7 @@ function playerQuery() {
 
 // ---------- registrations (everything parents submit on /register) ----------
 async function registrations() {
+  const seq = viewSeq;
   const f = state.regFilters || (state.regFilters = { status: 'pending' });
   const formUrl = location.origin + '/register';
   view().innerHTML = `
@@ -192,11 +202,14 @@ async function registrations() {
     try { await navigator.clipboard.writeText(formUrl); toast('Form link copied'); } catch { prompt('Copy this link:', formUrl); }
   });
   const load = () => guarded(async () => {
+    if (stale(seq)) return;
     const q = new URLSearchParams({ source: 'form', ...Object.fromEntries(Object.entries(f).filter(([, v]) => v)) });
-    $('#reg-csv').href = '/api/admin/players.csv?' + q;
     const list = (await api('/api/admin/players?' + q)).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    if (stale(seq)) return;
+    $('#reg-csv').href = '/api/admin/players.csv?' + q;
+    state.rows = new Map(list.map((p) => [String(p.id), p]));
     $('#reg-rows').innerHTML = list.map((p) => `<tr class="clickable" data-id="${p.id}">
-      <td><div>${fmtDate(fromSqlUtc(p.created_at), { day: 'numeric', month: 'short' })}</div><div class="sub">${fromSqlUtc(p.created_at).toLocaleTimeString(CLUB.locale, { hour: '2-digit', minute: '2-digit' })}</div></td>
+      <td><div>${fmtDate(fromSqlUtc(p.created_at), { day: 'numeric', month: 'short' })}</div><div class="sub">${fromSqlUtc(p.created_at).toLocaleTimeString(CLUB.locale, { hour: 'numeric', minute: '2-digit', hour12: true }).toUpperCase()}</div></td>
       <td><div class="name">${esc(p.first_name)} ${esc(p.last_name)}</div><div class="sub">${esc(p.gender || '')}</div></td>
       <td><div>${fmtDate(p.dob)}</div><div class="sub">${p.age} yrs · ${p.age_group}</div></td>
       <td>${esc(p.standard || '—')}</td>
@@ -205,8 +218,8 @@ async function registrations() {
       <td>${esc(p.location_name || '—')}</td>
       <td><div>${esc(p.guardian_name || '—')}</div><div class="sub">${esc(p.guardian_phone || p.phone || '')}</div></td>
       <td class="clip" title="${esc(p.notes || '')}">${esc(p.notes || '—')}</td>
-      <td><span class="pill ${p.status}">${p.status === 'pending' ? 'new' : p.status === 'active' ? 'approved' : p.status}</span></td>
-      <td class="num">${rowActions(p)}</td>
+      <td><span class="pill ${p.status}">${p.status === 'pending' ? 'new' : p.status === 'active' ? 'approved' : p.status}</span>${p.group_link_sent_at ? `<div class="sub">✓ Group link sent ${fmtDate(fromSqlUtc(p.group_link_sent_at), { day: 'numeric', month: 'short' })}</div>` : ''}</td>
+      <td class="num">${rowActions(p, { group: true })}</td>
     </tr>`).join('') || '<tr><td colspan="11" class="muted">No registrations here yet. Share the form link with parents to get started.</td></tr>';
     $('#reg-count').textContent = `${list.length} registration${list.length === 1 ? '' : 's'}`;
     bindPlayerRows();
@@ -222,6 +235,7 @@ async function registrations() {
 }
 
 async function players() {
+  const seq = viewSeq;
   const f = state.filters;
   view().innerHTML = `
     <div class="page-head"><h1>Players</h1>
@@ -246,8 +260,10 @@ async function players() {
       <div class="panel-body muted" id="player-count" style="font-size:13px"></div>
     </div>`;
   const load = () => guarded(async () => {
-    $('#csv').href = '/api/admin/players.csv?' + playerQuery();
+    if (stale(seq)) return;
     const list = await api('/api/admin/players?' + playerQuery());
+    if (stale(seq)) return;
+    $('#csv').href = '/api/admin/players.csv?' + playerQuery();
     $('#player-rows').innerHTML = list.map(playerRow).join('') || '<tr><td colspan="7" class="muted">No players match these filters.</td></tr>';
     $('#player-count').textContent = `${list.length} player${list.length === 1 ? '' : 's'} · fee status for ${fmtMonth(state.period)}`;
     bindPlayerRows();
@@ -405,6 +421,31 @@ function reminderText(p, period) {
   return (state.wa?.wa_template || '').replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
 }
 const waIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.2-.4.2-.4.7-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.5 4c1.7.7 2.3.8 3.2.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z"/></svg>';
+// Fill {placeholders} in a WhatsApp message for a player
+function fillMessage(tpl, p, extra = {}) {
+  const vars = {
+    player: `${p.first_name} ${p.last_name}`,
+    first_name: p.first_name,
+    guardian: (p.age < 18 && p.guardian_name) || p.first_name,
+    location: p.location_name || '',
+    club: 'Dreamers Football Association',
+    ...extra,
+  };
+  return (tpl || '').replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+}
+// Opens WhatsApp with the welcome message and group link, addressed to the parent
+function sendGroupLink(p) {
+  if (!p) return;
+  const link = state.wa?.wa_group_link;
+  if (!link) { toast('Add your WhatsApp group link in Settings first', true); return; }
+  const c = reminderContact(p);
+  if (!c) { toast(`No valid phone number for ${p.first_name} ${p.last_name}`, true); return; }
+  window.open(`https://wa.me/${c.number}?text=${encodeURIComponent(fillMessage(state.wa.wa_group_message, p, { link }))}`, '_blank', 'noopener');
+  api(`/api/admin/players/${p.id}/group-link-sent`, { method: 'POST' }).catch(() => {});
+  toast('WhatsApp opened — press send there');
+  setTimeout(refresh, 500);
+}
+
 function reminderStatus(p) {
   if (!p.reminder_count) return '';
   return `<div class="sub">💬 Reminded${p.reminder_count > 1 ? ` ${p.reminder_count}×` : ''} · ${fmtDate(fromSqlUtc(p.last_reminder), { day: 'numeric', month: 'short' })}</div>`;
@@ -445,6 +486,7 @@ function reminderQueue(unpaid, period, onDone) {
 
 // ---------- fees (quick monthly collection) ----------
 async function fees() {
+  const seq = viewSeq;
   const f = state.feeFilters || (state.feeFilters = {});
   view().innerHTML = `
     <div class="page-head"><h1>Fees</h1>
@@ -468,8 +510,10 @@ async function fees() {
       </table></div>
     </div>`;
   const load = () => guarded(async () => {
+    if (stale(seq)) return;
     const q = new URLSearchParams({ status: 'active', period: state.period, ...Object.fromEntries(Object.entries(f).filter(([, v]) => v)) });
     const list = await api('/api/admin/players?' + q);
+    if (stale(seq)) return;
     $('#fee-csv').href = '/api/admin/players.csv?' + new URLSearchParams({ ...Object.fromEntries(q), fee: 'unpaid' });
     const paid = list.filter((p) => p.fee_status === 'paid');
     const unpaid = list.filter((p) => p.fee_status === 'unpaid');
@@ -523,6 +567,30 @@ async function fees() {
   load();
 }
 
+// ---------- 12-hour time picker: Hour · Minutes · AM/PM (saved as 24-hour "HH:MM") ----------
+function timePicker(key, value, caption) {
+  let h = '', m = '00', ap = 'PM';
+  if (/^\d{2}:\d{2}$/.test(value || '')) {
+    const H = Number(value.slice(0, 2));
+    h = String(H % 12 || 12); m = value.slice(3); ap = H < 12 ? 'AM' : 'PM';
+  }
+  const mins = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'));
+  if (m && !mins.includes(m)) mins.push(m), mins.sort();
+  return `<div class="time-pick" data-k="${key}">
+    ${caption ? `<span class="tp-cap">${caption}</span>` : ''}
+    <select data-part="h" aria-label="${caption || 'Time'} hour"><option value="">Hour</option>${Array.from({ length: 12 }, (_, i) => String(i + 1)).map((x) => `<option ${x === h ? 'selected' : ''}>${x}</option>`).join('')}</select>
+    <span class="tp-colon">:</span>
+    <select data-part="m" aria-label="${caption || 'Time'} minutes">${mins.map((x) => `<option ${x === m ? 'selected' : ''}>${x}</option>`).join('')}</select>
+    <select data-part="ap" aria-label="AM or PM">${['AM', 'PM'].map((x) => `<option ${x === ap ? 'selected' : ''}>${x}</option>`).join('')}</select>
+  </div>`;
+}
+function readTime(el) {
+  const h = $('[data-part=h]', el).value;
+  if (!h) return '';
+  const H = (Number(h) % 12) + ($('[data-part=ap]', el).value === 'PM' ? 12 : 0);
+  return `${String(H).padStart(2, '0')}:${$('[data-part=m]', el).value || '00'}`;
+}
+
 // ---------- generic list editor (locations / news / fixtures) ----------
 function listEditor({ title, endpoint, items, render, fields, label, onOpen, serialize }) {
   view().innerHTML = `
@@ -554,8 +622,10 @@ function listEditor({ title, endpoint, items, render, fields, label, onOpen, ser
 }
 
 async function locationsView() {
+  const seq = viewSeq;
   await guarded(async () => {
     state.locations = await api('/api/locations');
+    if (stale(seq)) return;
     listEditor({
       title: 'Locations', label: 'location', endpoint: '/api/admin/locations', items: state.locations,
       render: (l) => `<div class="name">${esc(l.name)} <a href="${esc(mapLink(l))}" target="_blank" rel="noopener" class="hint" style="font-weight:500">${l.map_url ? 'map pin ↗' : 'map search ↗ (add exact link)'}</a></div><div class="sub">${[esc(l.address || ''), l.schedule?.length ? l.schedule.map((s) => `${esc(fmtDays(s.days))} ${esc(fmtTimeRange(s.start, s.end))} (${esc(s.group)})`).join('; ') : '<span class="muted">No timings yet</span>', l.monthly_fee > 0 ? `<b>${money(l.monthly_fee)}</b>/month` : ''].filter(Boolean).join(' · ')}</div>`,
@@ -578,8 +648,8 @@ async function locationsView() {
           row.className = 'sched-row';
           row.innerHTML = `
             <div class="day-picks">${WEEK.map((d) => `<label class="day-pick"><input type="checkbox" value="${d}" ${s.days.includes(d) ? 'checked' : ''}><span>${d}</span></label>`).join('')}</div>
-            <input type="time" data-k="start" value="${esc(s.start)}" aria-label="Start time">
-            <input type="time" data-k="end" value="${esc(s.end)}" aria-label="End time">
+            ${timePicker('start', s.start, 'From')}
+            ${timePicker('end', s.end, 'To')}
             <input data-k="group" value="${esc(s.group)}" placeholder="Age group, e.g. U8–U12" list="group-list" aria-label="Age group">
             <input data-k="note" value="${esc(s.note)}" placeholder="Note (optional)" aria-label="Note">
             <button type="button" class="close-btn" title="Remove session" aria-label="Remove session">×</button>`;
@@ -595,7 +665,7 @@ async function locationsView() {
       serialize: (form, data) => {
         data.schedule = $$('.sched-row', form).map((r) => ({
           days: $$('.day-pick input:checked', r).map((c) => c.value),
-          start: $('[data-k=start]', r).value, end: $('[data-k=end]', r).value,
+          start: readTime($('[data-k=start]', r)), end: readTime($('[data-k=end]', r)),
           group: $('[data-k=group]', r).value, note: $('[data-k=note]', r).value,
         })).filter((s) => s.days.length || s.start || s.end || s.note); // ignore completely empty rows
       },
@@ -604,8 +674,10 @@ async function locationsView() {
 }
 
 async function newsView() {
+  const seq = viewSeq;
   await guarded(async () => {
     const items = await api('/api/news?limit=100');
+    if (stale(seq)) return;
     listEditor({
       title: 'News', label: 'article', endpoint: '/api/admin/news', items,
       render: (n) => `<div class="name">${esc(n.title)}</div><div class="sub">${fmtDate(n.published_at)} · ${esc(n.summary || '')}</div>`,
@@ -620,8 +692,10 @@ async function newsView() {
 }
 
 async function fixturesView() {
+  const seq = viewSeq;
   await guarded(async () => {
     const items = (await api('/api/fixtures')).reverse();
+    if (stale(seq)) return;
     listEditor({
       title: 'Fixtures & results', label: 'fixture', endpoint: '/api/admin/fixtures', items,
       render: (f) => `<div class="name">Dreamers FA ${esc(f.team)} vs ${esc(f.opponent)} ${f.score_us != null && f.score_them != null ? `<span class="pill ${f.score_us > f.score_them ? 'paid' : f.score_us < f.score_them ? 'unpaid' : 'pending'}">${f.score_us}–${f.score_them}</span>` : ''}</div>
@@ -629,12 +703,20 @@ async function fixturesView() {
       fields: (f) => `
         <label><span>Our team <span class="req">*</span></span><select name="team">${opts(AGE_GROUPS, f.team || 'Senior')}</select></label>
         <label><span>Opponent <span class="req">*</span></span><input name="opponent" value="${esc(f.opponent)}" required></label>
-        <label><span>Date &amp; time <span class="req">*</span></span><input type="datetime-local" name="match_date" value="${esc(f.match_date)}" required></label>
+        <label><span>Match date <span class="req">*</span></span><input type="date" data-k="match_day" value="${esc((f.match_date || '').slice(0, 10))}" required></label>
+        <div class="field"><span class="field-label">Kick-off time <span class="req">*</span></span>${timePicker('match_time', (f.match_date || '').slice(11, 16))}</div>
         <label>Home / away<select name="home_away">${opts(['Home', 'Away'], f.home_away)}</select></label>
         <label>Venue<input name="venue" value="${esc(f.venue)}"></label>
         <label>Competition<input name="competition" value="${esc(f.competition)}" placeholder="League, Cup, Friendly…"></label>
         <label>Our score<input type="number" min="0" name="score_us" value="${esc(f.score_us)}"><span class="hint">Fill in both scores after the match to show it as a result.</span></label>
         <label>Their score<input type="number" min="0" name="score_them" value="${esc(f.score_them)}"></label>`,
+      serialize: (form, data) => {
+        const day = $('[data-k=match_day]', form).value;
+        const time = readTime($('[data-k=match_time]', form));
+        if (!day) throw new Error('Choose the match date');
+        if (!time) throw new Error('Choose the kick-off time (hour and AM/PM)');
+        data.match_date = `${day}T${time}`;
+      },
     });
   });
 }
@@ -643,6 +725,17 @@ async function fixturesView() {
 function settings() {
   view().innerHTML = `
     <div class="page-head"><h1>Settings</h1></div>
+    <div class="panel" style="max-width:820px"><div class="panel-head"><h3>WhatsApp group</h3></div>
+      <form class="panel-body" id="grp-form" style="display:grid;gap:14px">
+        <div id="grp-alert"></div>
+        <label>Group invite link<input name="wa_group_link" value="${esc(state.wa?.wa_group_link)}" placeholder="https://chat.whatsapp.com/…" inputmode="url">
+          <span class="hint">In WhatsApp, open the group → group name → <b>Invite via link</b> → Copy link, and paste it here.
+          Parents then see a <b>Join our WhatsApp group</b> button straight after registering, and you can send it from <b>Registrations</b> → <b>Group link</b>.</span></label>
+        <label>Welcome message<textarea name="wa_group_message" style="min-height:190px">${esc(state.wa?.wa_group_message)}</textarea>
+          <span class="hint">Placeholders: {guardian} {player} {first_name} {location} {club} and <b>{link}</b> (required: where the group link goes).</span></label>
+        <div><div class="hint" style="margin-bottom:6px">Preview</div><div id="grp-preview" class="wa-bubble"></div></div>
+        <button class="btn btn-primary" style="justify-self:start">Save WhatsApp group</button>
+      </form></div>
     <div class="panel" style="max-width:820px"><div class="panel-head"><h3>WhatsApp fee reminder</h3></div>
       <form class="panel-body" id="wa-form" style="display:grid;gap:14px">
         <div id="wa-alert"></div>
@@ -668,10 +761,24 @@ function settings() {
     state.wa = saved;
   };
   waForm.addEventListener('input', preview); preview();
+  const grpForm = $('#grp-form');
+  const grpPreview = () => {
+    $('#grp-preview').textContent = fillMessage(grpForm.wa_group_message.value, sample, { link: grpForm.wa_group_link.value.trim() || 'https://chat.whatsapp.com/…' });
+  };
+  grpForm.addEventListener('input', grpPreview); grpPreview();
+  grpForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await api('/api/admin/settings', { method: 'PUT', body: formData(grpForm) });
+      state.wa = await api('/api/admin/settings');
+      $('#grp-alert').innerHTML = ''; toast(state.wa.wa_group_link ? 'WhatsApp group link saved' : 'Saved (no group link yet)');
+    } catch (err) { $('#grp-alert').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
+  });
   waForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
-      await api('/api/admin/settings', { method: 'PUT', body: formData(waForm) });
+      const { wa_template, wa_country_code } = formData(waForm);
+      await api('/api/admin/settings', { method: 'PUT', body: { wa_template, wa_country_code } });
       state.wa = await api('/api/admin/settings');
       waForm.wa_country_code.value = state.wa.wa_country_code;
       $('#wa-alert').innerHTML = ''; toast('Reminder settings saved');
