@@ -419,3 +419,11 @@ label.invalid > span:first-child, label.invalid.check { color: var(--bad); }
 .find-item small { color: var(--muted); font-size: 12px; }
 .find-all { color: var(--blue); font-weight: 600; justify-content: center; }
 .find-empty { padding: 14px 16px; color: var(--muted); }
+
+/* ex-players: select several, player page banner */
+th.pick, td.pick { width: 36px; padding-right: 0; }
+td.pick input, th.pick input { width: 18px; height: 18px; cursor: pointer; }
+.bulk-bar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 18px; background: var(--navy); color: #fff; }
+.bulk-bar .btn-outline { background: #fff; }
+.ex-banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: #eef0f4; color: var(--ink); }
+.ex-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
