@@ -83,6 +83,7 @@
         row('Age', `${age()} years (${ageGroup(age())})`) + row('Standard', data.standard) +
         row('Blood group', BLOOD_LABELS[data.blood_group] || data.blood_group) + row('Position', POSITION_LABELS[data.position] || data.position) +
         row('Centre', loc?.name) + row('Parent', data.guardian_name) + row('Mobile', data.guardian_phone || data.phone);
+      $$('#reg-success [data-notify]').forEach((b) => { b.dataset.location = data.location_id; }); // practice reminders for this centre
       form.hidden = true; $('#reg-success').hidden = false;
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {

@@ -65,6 +65,118 @@ function ageGroup(a) { return a < 8 ? 'U8' : a < 10 ? 'U10' : a < 12 ? 'U12' : a
 
 document.addEventListener('DOMContentLoaded', () => { const y = $('#year'); if (y) y.textContent = new Date().getFullYear(); });
 
+// ---- small pop-up message for the public pages ----
+function notice(msg, isError) {
+  $$('.toast').forEach((x) => x.remove());
+  const t = document.createElement('div');
+  t.className = 'toast' + (isError ? ' error' : '');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4500);
+}
+
+// ---- push notifications ----
+// audience 'public' = club news for parents/players, 'admin' = new-registration alerts for club admins
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const IOS_NOTIFY_NOTE = `<div class="alert alert-ok" style="margin-bottom:14px">On iPhone, notifications work once the app is on your Home Screen
+  (iOS 16.4 or newer). Add it with the steps below, open <b>Dreamers FA</b> from your Home Screen, then tap <b>Get notifications</b> again.</div>`;
+function b64ToBytes(b64) {
+  const raw = atob((b64 + '='.repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+async function currentPushSub() {
+  if (!pushSupported()) return null;
+  const reg = await navigator.serviceWorker.ready;
+  return reg.pushManager.getSubscription();
+}
+async function pushStatus() {
+  const sub = await currentPushSub();
+  if (!sub) return { public: false, admin: false };
+  return api('/api/push/status', { method: 'POST', body: { endpoint: sub.endpoint } });
+}
+async function enablePush(audience, locationId = null) {
+  if (!pushSupported()) {
+    const e = new Error(isIOS() && !isInstalled() ? 'ios-install' : 'This browser can’t show notifications. Use Chrome on Android, or the installed app on iPhone.');
+    throw e;
+  }
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') throw new Error('Notifications are blocked for this site. Allow them in your browser’s site settings (tap the lock icon next to the address), then try again.');
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    const { key } = await api('/api/push/key');
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+  }
+  await api('/api/push/subscribe', { method: 'POST', body: { subscription: sub.toJSON(), audience, location_id: locationId } });
+}
+async function disablePush(audience) {
+  const sub = await currentPushSub();
+  if (!sub) return;
+  await api('/api/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint, audience } });
+  const st = await pushStatus();
+  if (!st.public && !st.admin) await sub.unsubscribe();
+}
+// Ask which training centre the family follows (for "Practice today" reminders). Resolves to an id, '' (club news only) or null (cancelled).
+async function chooseCentre() {
+  let locs = [];
+  try { locs = await api('/api/locations'); } catch {}
+  return new Promise((resolve) => {
+    let dlg = $('#centre-dialog');
+    if (dlg) dlg.remove();
+    document.body.insertAdjacentHTML('beforeend', `<dialog id="centre-dialog"><form method="dialog">
+      <div class="modal-head"><h3>Get notifications</h3><button type="button" class="close-btn" aria-label="Close" value="cancel">×</button></div>
+      <div class="modal-body">
+        <p style="margin-top:0">Which centre does your child train at? You’ll get a <b>“Practice today”</b> reminder with the time for that centre, plus club news.</p>
+        <div class="loc-options">${locs.map((l) => `<label class="loc-option"><input type="radio" name="centre" value="${l.id}"><b>${esc(l.name)}</b>${l.address ? `<small>${esc(l.address)}</small>` : ''}</label>`).join('')}
+          <label class="loc-option"><input type="radio" name="centre" value=""><b>Club news only</b><small>No practice reminders</small></label></div>
+        <div class="modal-foot"><span></span><button class="btn btn-primary" value="ok">🔔 Turn on notifications</button></div>
+      </div></form></dialog>`);
+    dlg = $('#centre-dialog');
+    let choice = null;
+    $('.close-btn', dlg).addEventListener('click', () => dlg.close());
+    dlg.querySelector('form').addEventListener('submit', (e) => {
+      const picked = dlg.querySelector('input[name=centre]:checked');
+      if (!picked) { e.preventDefault(); notice('Please choose a centre (or “Club news only”)', true); return; }
+      choice = picked.value;
+    });
+    dlg.addEventListener('close', () => { resolve(choice); dlg.remove(); }, { once: true });
+    dlg.showModal();
+  });
+}
+
+// "Get notifications" buttons on the public pages
+async function refreshNotifyButtons() {
+  const btns = $$('[data-notify]');
+  if (!btns.length) return;
+  let on = false;
+  try { on = pushSupported() && (await pushStatus()).public; } catch {}
+  btns.forEach((b) => { b.dataset.on = on ? '1' : ''; b.textContent = on ? '🔔 Notifications on' : '🔔 Get notifications'; });
+}
+document.addEventListener('DOMContentLoaded', refreshNotifyButtons);
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-notify]');
+  if (!btn) return;
+  e.preventDefault();
+  try {
+    if (btn.dataset.on) {
+      if (!confirm('Turn off notifications from Dreamers FA on this device?')) return;
+      await disablePush('public');
+      notice('Notifications turned off');
+    } else {
+      if (!pushSupported()) throw new Error(isIOS() && !isInstalled() ? 'ios-install' : 'This browser can’t show notifications. Use Chrome on Android, or the installed app on iPhone.');
+      // straight after registering we already know the centre; otherwise ask
+      const centre = btn.dataset.location || await chooseCentre();
+      if (centre == null) return;
+      btn.disabled = true;
+      await enablePush('public', centre ? Number(centre) : null);
+      notice('Notifications are on! You’ll get club news, match updates and training changes.');
+    }
+  } catch (err) {
+    if (err.message === 'ios-install') showInstallHelp(IOS_NOTIFY_NOTE);
+    else notice(err.message, true);
+  } finally { btn.disabled = false; refreshNotifyButtons(); }
+});
+
 // ---- "Download app": install the website as an app on the phone / computer ----
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 let installPrompt = null;
@@ -88,7 +200,7 @@ document.addEventListener('click', async (e) => {
   }
   showInstallHelp();
 });
-function showInstallHelp() {
+function showInstallHelp(note = '') {
   let steps;
   if (isIOS()) {
     steps = `<p><b>On iPhone / iPad</b> (use <b>Safari</b>):</p>
@@ -107,6 +219,6 @@ function showInstallHelp() {
       <button class="close-btn" aria-label="Close" onclick="this.closest('dialog').close()">×</button></div><div class="modal-body install-help"></div></dialog>`);
     dlg = $('#install-dialog');
   }
-  $('.install-help', dlg).innerHTML = `<div class="install-app"><img src="/img/icon-192.png" alt="" width="64" height="64"><div><b>Dreamers FA</b><span>Free · works like an app · no app store needed</span></div></div>${steps}`;
+  $('.install-help', dlg).innerHTML = `${note}<div class="install-app"><img src="/img/icon-192.png" alt="" width="64" height="64"><div><b>Dreamers FA</b><span>Free · works like an app · no app store needed</span></div></div>${steps}`;
   dlg.showModal();
 }

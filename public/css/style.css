@@ -390,3 +390,32 @@ label.invalid > span:first-child, label.invalid.check { color: var(--bad); }
 .group-join b { color: #075e2b; font-size: 17px; }
 .group-join span { color: #2b5c3c; font-size: 14px; }
 .group-join .btn { margin-top: 6px; }
+
+/* notifications */
+.app-band-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.nt-quick { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.nt-preview { display: flex; gap: 12px; align-items: flex-start; background: #f1f3f6; border-radius: 14px; padding: 12px 14px; max-width: 420px; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.nt-preview img { width: 40px; height: 40px; flex: none; }
+.nt-preview b { display: block; color: #111; font-size: 14px; }
+.nt-preview span { display: block; color: #333; font-size: 13px; white-space: pre-wrap; }
+.nt-preview small { display: block; color: #777; font-size: 11px; margin-top: 4px; }
+
+/* practice reminders */
+.pr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.pr-card { border: 1.5px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 10px; }
+.pr-card.off { background: var(--bg); }
+.pr-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.pr-head b { color: var(--navy); }
+.pr-settings { margin-top: 16px; }
+.pr-settings summary { cursor: pointer; font-weight: 600; color: var(--blue); }
+
+/* find any player */
+.global-search { position: relative; margin-bottom: 20px; max-width: 640px; }
+.global-search input { padding: 12px 16px; border-radius: 999px; background: #fff; box-shadow: 0 1px 2px rgba(10,31,68,.06); }
+.find-results { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); z-index: 30; overflow: hidden; }
+.find-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; padding: 11px 16px; border: 0; border-bottom: 1px solid var(--line); background: #fff; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.find-item:hover, .find-item:focus { background: var(--sky); outline: none; }
+.find-item b { display: block; color: var(--navy); }
+.find-item small { color: var(--muted); font-size: 12px; }
+.find-all { color: var(--blue); font-weight: 600; justify-content: center; }
+.find-empty { padding: 14px 16px; color: var(--muted); }

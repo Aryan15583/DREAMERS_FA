@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { createClient } = require('@libsql/client');
+const webpush = require('web-push');
 
 const ON_VERCEL = !!process.env.VERCEL;
 
@@ -125,6 +126,30 @@ CREATE TABLE IF NOT EXISTS fixtures (
   score_us INTEGER,
   score_them INTEGER
 );
+
+-- Devices that turned on notifications. One row per browser/app install;
+-- is_public = club news for parents/players, is_admin = new-registration alerts for admins.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id INTEGER PRIMARY KEY,
+  endpoint TEXT UNIQUE NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  is_public INTEGER NOT NULL DEFAULT 0,
+  is_admin INTEGER NOT NULL DEFAULT 0,
+  location_id INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Notifications sent from the admin panel
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT,
+  url TEXT,
+  delivered INTEGER NOT NULL DEFAULT 0,
+  failed INTEGER NOT NULL DEFAULT 0,
+  sent_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 
 function hashPassword(pw) {
@@ -182,7 +207,11 @@ async function init() {
   const locCols = await cols('locations');
   if (!locCols.includes('map_url')) await db.run('ALTER TABLE locations ADD COLUMN map_url TEXT');
   if (!locCols.includes('schedule')) await db.run('ALTER TABLE locations ADD COLUMN schedule TEXT'); // JSON list of training sessions
+  const subCols = await cols('push_subscriptions');
+  if (!subCols.includes('location_id')) await db.run('ALTER TABLE push_subscriptions ADD COLUMN location_id INTEGER'); // centre the family follows
   const playerCols = await cols('players');
+  if (!playerCols.includes('left_on')) await db.run('ALTER TABLE players ADD COLUMN left_on TEXT');       // ex-players: date they left
+  if (!playerCols.includes('left_reason')) await db.run('ALTER TABLE players ADD COLUMN left_reason TEXT');
   if (!playerCols.includes('standard')) await db.run('ALTER TABLE players ADD COLUMN standard TEXT'); // school class, e.g. "5th"
   if (!playerCols.includes('blood_group')) await db.run('ALTER TABLE players ADD COLUMN blood_group TEXT');
   if (!playerCols.includes('group_link_sent_at')) await db.run('ALTER TABLE players ADD COLUMN group_link_sent_at TEXT'); // when the WhatsApp group link was sent
@@ -201,6 +230,15 @@ async function init() {
   }
   if (!settings.wa_template_v2) await set('wa_template_v2', '1');
   if (!settings.wa_group_message) await set('wa_group_message', DEFAULT_GROUP_MESSAGE);
+  if (!settings.practice_title) await set('practice_title', 'Practice today ⚽');
+  if (!settings.practice_message) await set('practice_message', 'Practice today @ {time} at {location}. See you there!');
+  if (settings.practice_auto == null) await set('practice_auto', '0');
+  // Keys that identify this site to the phone's notification service (created once, kept in the database)
+  if (!settings.vapid_public || !settings.vapid_private) {
+    const keys = webpush.generateVAPIDKeys();
+    await set('vapid_public', keys.publicKey);
+    await set('vapid_private', keys.privateKey);
+  }
   if (!settings.wa_country_code) await set('wa_country_code', process.env.WA_COUNTRY_CODE || '91');
 
   // First admin account. On the live site a password must be provided (never the default one).
