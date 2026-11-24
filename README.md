@@ -9,6 +9,8 @@ Official website for **Dreamers Football Association (Dreamers FA)**, with onlin
 - Standalone **player registration form** (`/register`), a page on its own to share with parents: parents choose a training centre and fill in name, birth date (age and age group are calculated automatically), standard (class), blood group and playing position (**Fresher** for new players). These are required, along with guardian details for under-18s
 
 **Club admin** (`/admin`)
+- **Download app**: the site can be installed on phones and computers as an app (crest icon, opens full screen). *Download app* buttons install it on Android/Chrome/Edge and show the steps on iPhone (Share → Add to Home Screen)
+- **WhatsApp group**: paste the group invite link in Admin → Settings. Parents then get a *Join our WhatsApp group* button right after registering, and *Registrations → Group link* sends it to a parent with a welcome message
 - **Registrations**: every form parents submit appears here automatically, with all details in one table (submitted date, player, birth date and age, standard, blood group, position, centre, parent and mobile, medical notes). Each row has **Approve**, **Edit** and **Delete**. Use *Copy form link* / *Share form* to send the form to parents on WhatsApp, and *Export* to get a spreadsheet
 - **Dashboard**: active / pending players, paid vs unpaid for any month, money collected and outstanding, breakdown by location and age group
 - **Players**: search and filter by location, age group (U8–U18, Senior), status and fee status; add, edit, approve and delete players; export to CSV (opens in Excel)

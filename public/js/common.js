@@ -6,7 +6,7 @@ const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = (n) => CLUB.currency + Number(n || 0).toLocaleString(CLUB.locale, { maximumFractionDigits: 2 });
 const fmtDate = (d, opts = { day: 'numeric', month: 'short', year: 'numeric' }) => (d ? new Date(d).toLocaleDateString(CLUB.locale, opts) : '');
-const fmtDateTime = (d) => (d ? new Date(d).toLocaleString(CLUB.locale, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+const fmtDateTime = (d) => (d ? new Date(d).toLocaleString(CLUB.locale, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).replace(/\b(am|pm)\b/g, (x) => x.toUpperCase()) : '');
 const fmtMonth = (p) => (p ? new Date(p + '-01T00:00').toLocaleDateString(CLUB.locale, { month: 'long', year: 'numeric' }) : '');
 
 async function api(url, opts = {}) {
@@ -64,3 +64,49 @@ function ageFromDob(dob) {
 function ageGroup(a) { return a < 8 ? 'U8' : a < 10 ? 'U10' : a < 12 ? 'U12' : a < 14 ? 'U14' : a < 16 ? 'U16' : a < 18 ? 'U18' : 'Senior'; }
 
 document.addEventListener('DOMContentLoaded', () => { const y = $('#year'); if (y) y.textContent = new Date().getFullYear(); });
+
+// ---- "Download app": install the website as an app on the phone / computer ----
+if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+let installPrompt = null;
+const isInstalled = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isAndroid = () => /android/i.test(navigator.userAgent);
+function hideInstallButtons() { $$('[data-install]').forEach((b) => { b.hidden = true; }); }
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; });
+window.addEventListener('appinstalled', () => { installPrompt = null; hideInstallButtons(); });
+document.addEventListener('DOMContentLoaded', () => { if (isInstalled()) hideInstallButtons(); });
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-install]');
+  if (!btn) return;
+  e.preventDefault();
+  if (installPrompt) { // Android / Chrome / Edge: the browser's own install dialog
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    installPrompt = null;
+    if (outcome === 'accepted') hideInstallButtons();
+    return;
+  }
+  showInstallHelp();
+});
+function showInstallHelp() {
+  let steps;
+  if (isIOS()) {
+    steps = `<p><b>On iPhone / iPad</b> (use <b>Safari</b>):</p>
+      <ol><li>Tap the <b>Share</b> button <span aria-hidden="true">⬆️</span> at the bottom of the screen.</li>
+      <li>Scroll down and tap <b>Add to Home Screen</b>.</li><li>Tap <b>Add</b>. The Dreamers FA app appears on your home screen.</li></ol>`;
+  } else if (isAndroid()) {
+    steps = `<p><b>On Android</b> (use <b>Chrome</b>):</p>
+      <ol><li>Tap the <b>⋮</b> menu at the top right.</li><li>Tap <b>Install app</b> (or <b>Add to Home screen</b>).</li><li>Tap <b>Install</b>.</li></ol>`;
+  } else {
+    steps = `<p><b>On a computer</b> (Chrome or Edge): click the install icon <span aria-hidden="true">⊕</span> at the right end of the address bar, or open the menu and choose <b>Install Dreamers FA</b>.</p>
+      <p><b>On your phone:</b> open this website and tap <b>Download app</b>.</p>`;
+  }
+  let dlg = $('#install-dialog');
+  if (!dlg) {
+    document.body.insertAdjacentHTML('beforeend', `<dialog id="install-dialog"><div class="modal-head"><h3>Get the Dreamers FA app</h3>
+      <button class="close-btn" aria-label="Close" onclick="this.closest('dialog').close()">×</button></div><div class="modal-body install-help"></div></dialog>`);
+    dlg = $('#install-dialog');
+  }
+  $('.install-help', dlg).innerHTML = `<div class="install-app"><img src="/img/icon-192.png" alt="" width="64" height="64"><div><b>Dreamers FA</b><span>Free · works like an app · no app store needed</span></div></div>${steps}`;
+  dlg.showModal();
+}

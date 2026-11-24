@@ -226,7 +226,8 @@ app.post('/api/register', wrap(async (req, res) => {
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending','form')`,
     p.first_name, p.last_name, p.dob, p.gender, p.location_id, p.position, p.standard, p.blood_group, p.phone, p.email,
     p.guardian_name, p.guardian_phone, p.address, p.notes);
-  res.json({ ok: true, id: r.lastInsertRowid });
+  const link = await db.get("SELECT value FROM settings WHERE key = 'wa_group_link'");
+  res.json({ ok: true, id: r.lastInsertRowid, group_link: link?.value || null }); // shown on the "registration received" screen
 }));
 
 // ---------- auth ----------
@@ -399,19 +400,43 @@ admin.post('/players/:id/reminders', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-admin.get('/settings', wrap(async (req, res) => {
-  const rows = await db.all("SELECT key, value FROM settings WHERE key IN ('wa_template', 'wa_country_code')");
-  const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
-  res.json({ wa_template: s.wa_template || '', wa_country_code: s.wa_country_code || '' });
+admin.post('/players/:id/group-link-sent', wrap(async (req, res) => {
+  const r = await db.run("UPDATE players SET group_link_sent_at = datetime('now') WHERE id = ?", req.params.id);
+  if (!r.changes) return res.status(404).json({ error: 'Player not found' });
+  res.json({ ok: true });
 }));
 
+const SETTING_KEYS = ['wa_template', 'wa_country_code', 'wa_group_link', 'wa_group_message'];
+admin.get('/settings', wrap(async (req, res) => {
+  const rows = await db.all(`SELECT key, value FROM settings WHERE key IN (${SETTING_KEYS.map(() => '?').join(',')})`, ...SETTING_KEYS);
+  const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  res.json(Object.fromEntries(SETTING_KEYS.map((k) => [k, s[k] || ''])));
+}));
+
+// Saves only the settings that were sent, so each settings form can be saved on its own
 admin.put('/settings', wrap(async (req, res) => {
-  const tpl = str(req.body.wa_template, 2000);
-  const cc = String(req.body.wa_country_code ?? '').replace(/\D/g, '');
-  if (!tpl) return res.status(400).json({ error: 'Message template cannot be empty' });
-  if (!cc || cc.length > 4) return res.status(400).json({ error: 'Country code should be 1–4 digits, e.g. 91' });
-  await setSetting('wa_template', tpl);
-  await setSetting('wa_country_code', cc);
+  const b = req.body || {};
+  const updates = {};
+  if ('wa_template' in b) {
+    updates.wa_template = str(b.wa_template, 2000);
+    if (!updates.wa_template) return res.status(400).json({ error: 'Reminder message cannot be empty' });
+  }
+  if ('wa_country_code' in b) {
+    updates.wa_country_code = String(b.wa_country_code ?? '').replace(/\D/g, '');
+    if (!updates.wa_country_code || updates.wa_country_code.length > 4) return res.status(400).json({ error: 'Country code should be 1–4 digits, e.g. 91' });
+  }
+  if ('wa_group_link' in b) {
+    updates.wa_group_link = str(b.wa_group_link, 200) || '';
+    if (updates.wa_group_link && !/^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]{10,}\/?(\?.*)?$/.test(updates.wa_group_link)) {
+      return res.status(400).json({ error: 'Paste the group invite link from WhatsApp. It looks like https://chat.whatsapp.com/AbC123…' });
+    }
+  }
+  if ('wa_group_message' in b) {
+    updates.wa_group_message = str(b.wa_group_message, 2000);
+    if (!updates.wa_group_message) return res.status(400).json({ error: 'Group message cannot be empty' });
+    if (!updates.wa_group_message.includes('{link}')) return res.status(400).json({ error: 'The group message must contain {link} where the group link goes' });
+  }
+  for (const [k, v] of Object.entries(updates)) await setSetting(k, v);
   res.json({ ok: true });
 }));
 

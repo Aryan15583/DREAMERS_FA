@@ -4,6 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="/img/favicon.png" type="image/png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Dreamers FA" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#0a1f44" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -16,7 +22,7 @@
   <div class="topbar">
     <div class="container">
       <span>Official website of Dreamers FA</span>
-      <span class="hide-sm"><a href="/register">Register a player</a> · <a href="/admin">Club admin</a></span>
+      <span><a href="#" data-install>📲 Download app</a><span class="hide-sm"> · <a href="/register">Register a player</a> · <a href="/admin">Club admin</a></span></span>
     </div>
   </div>
   <header class="site-header">
@@ -32,6 +38,7 @@
         <a href="/#academy">Academy</a>
         <a href="/#club">Club</a>
         <a href="/#contact">Contact</a>
+        <a href="#" data-install class="nav-app">📲 App</a>
         <a class="btn btn-primary btn-sm" href="/register">Join the club</a>
       </nav>
     </div>
@@ -47,6 +54,7 @@
           <div class="actions">
             <a class="btn btn-light" href="/register">Register a player</a>
             <a class="btn btn-outline" href="#fixtures">See fixtures</a>
+            <a class="btn btn-outline" href="#" data-install>📲 Download app</a>
           </div>
         </div>
         <img class="hero-crest" src="/img/logo.webp" alt="Dreamers Football Association crest" width="480" height="480" />
@@ -129,6 +137,16 @@
         </div>
       </div>
       <div class="container" style="margin-top:64px">
+        <div class="app-band">
+          <img src="/img/icon-192.png" alt="" width="88" height="88" />
+          <div>
+            <h2>Get the Dreamers FA app</h2>
+            <p>Fixtures, news, training timings and registration on your home screen. Free, and no app store needed.</p>
+          </div>
+          <a class="btn btn-primary" href="#" data-install>📲 Download app</a>
+        </div>
+      </div>
+      <div class="container" style="margin-top:24px">
         <div class="cta">
           <div><h2>Become a Dreamer</h2><p>Registration takes two minutes. Our coaches will call you to confirm.</p></div>
           <a class="btn btn-light" href="/register">Register a player</a>
@@ -145,7 +163,7 @@
           <p>One Team. One Dream. A community football club developing players of every age.</p>
         </div>
         <div><h4>Club</h4><a href="/#news">News</a><a href="/#fixtures">Fixtures &amp; results</a><a href="/#teams">Teams</a><a href="/#club">About us</a></div>
-        <div><h4>Academy</h4><a href="/#academy">Training centres</a><a href="/register">Register a player</a><a href="/admin">Club admin</a></div>
+        <div><h4>Academy</h4><a href="/#academy">Training centres</a><a href="/register">Register a player</a><a href="#" data-install>Download the app</a><a href="/admin">Club admin</a></div>
         <div><h4>Contact</h4><a href="mailto:info@example.com">info@example.com</a><a href="tel:+910000000000">+91 00000 00000</a><span>Update these in the footer of the HTML pages</span></div>
       </div>
       <div class="copy"><span>© <span id="year"></span> Dreamers FA. All rights reserved.</span><span>Hala Dreamers 💙🤍</span></div>

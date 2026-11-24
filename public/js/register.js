@@ -71,7 +71,11 @@
     const btn = form.querySelector('button[type=submit]');
     btn.disabled = true; btn.textContent = 'Submitting…';
     try {
-      await api('/api/register', { method: 'POST', body: data });
+      const result = await api('/api/register', { method: 'POST', body: data });
+      if (result.group_link && /^https:\/\/chat\.whatsapp\.com\//.test(result.group_link)) {
+        $('#reg-group-link').href = result.group_link;
+        $('#reg-group').hidden = false;
+      }
       const loc = locs.find((l) => String(l.id) === String(data.location_id));
       const row = (k, v) => (v ? `<div><span>${k}</span><b>${esc(v)}</b></div>` : '');
       $('#reg-summary').innerHTML =
