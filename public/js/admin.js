@@ -134,21 +134,22 @@ function playerRow(p, { select } = {}) {
     <td><div>${esc(p.phone || p.guardian_phone || '—')}</div><div class="sub">${esc(p.guardian_name || '')}</div></td>
     <td><span class="pill ${p.status}">${STATUS_LABEL[p.status] || p.status}</span>${p.left_on ? `<div class="sub">left ${fmtDate(p.left_on)}</div>` : ''}</td>
     <td><span class="pill ${p.fee_status}">${p.fee_status === 'n/a' ? '—' : p.fee_status}</span> ${p.fee > 0 ? `<span class="sub">${money(p.fee)}</span>` : ''}</td>
-    <td class="num">${rowActions(p)}</td>
   </tr>`;
 }
 // ---------- tick players, then act on them (Players, Registrations, Ex-players) ----------
 const pickCell = (p) => `<td class="pick"><input type="checkbox" data-pick="${p.id}" aria-label="Select ${esc(p.first_name)} ${esc(p.last_name)}" ${state.selected?.has(String(p.id)) ? 'checked' : ''}></td>`;
 const pickHead = '<th class="pick"><input type="checkbox" id="pick-all" aria-label="Select all"></th>';
-const bulkBarHtml = (exPage) => `<div class="bulk-bar" id="bulk-bar" hidden>
+const bulkBarHtml = ({ exPage, group } = {}) => `<div class="bulk-bar" id="bulk-bar" hidden>
     <b id="bulk-count"></b>
+    <button class="btn btn-sm btn-primary" id="bulk-approve" hidden>✓ Approve</button>
+    ${group ? `<button class="btn btn-sm btn-wa" id="bulk-group" hidden title="Send the WhatsApp group link to the parent">${waIcon} Group link</button>` : ''}
     ${exPage ? '<button class="btn btn-sm btn-primary" id="bulk-ex">↩ Re-join</button>' : '<button class="btn btn-sm btn-primary" id="bulk-ex">🗂 Add to Ex-players</button>'}
     <button class="btn btn-sm btn-light" id="bulk-edit">✎ Edit</button>
     <button class="btn btn-sm btn-danger" id="bulk-del">🗑 Delete</button>
     <button class="btn btn-sm btn-outline bulk-clear" id="bulk-clear">Clear</button>
   </div>`;
 // Wire up the tick boxes and the action bar for the rows just drawn
-function setupSelection(list, { exPage } = {}) {
+function setupSelection(list, { exPage, group } = {}) {
   state.selected = new Set([...(state.selected || [])].filter((id) => list.some((p) => String(p.id) === id)));
   const picks = $$('[data-pick]');
   const byId = new Map(list.map((p) => [String(p.id), p]));
@@ -158,6 +159,12 @@ function setupSelection(list, { exPage } = {}) {
     $('#bulk-bar').hidden = !n;
     $('#bulk-count').textContent = n === 1 ? `${names()[0]} selected` : `${n} players selected`;
     $('#bulk-edit').textContent = n > 1 ? `✎ Edit ${n}` : '✎ Edit';
+    const chosen = [...state.selected].map((id) => byId.get(id)).filter(Boolean);
+    const newOnes = chosen.filter((p) => p.status === 'pending').length;
+    $('#bulk-approve').hidden = !newOnes;
+    $('#bulk-approve').textContent = newOnes > 1 ? `✓ Approve ${newOnes}` : '✓ Approve';
+    if (!exPage) $('#bulk-ex').hidden = chosen.length > 0 && chosen.every((p) => p.status === 'inactive');
+    if (group) $('#bulk-group').hidden = n !== 1;
     $('#pick-all').checked = picks.length > 0 && picks.every((c) => c.checked);
     $('#pick-all').indeterminate = n > 0 && !$('#pick-all').checked;
   };
@@ -173,6 +180,14 @@ function setupSelection(list, { exPage } = {}) {
       toast(r.updated === 1 ? `${names()[0]} is back in the squad` : `${r.updated} players are back in the squad`); refresh();
     });
   };
+  $('#bulk-approve').onclick = async () => {
+    const ids = [...state.selected].filter((id) => byId.get(id)?.status === 'pending');
+    await guarded(async () => {
+      const r = await api('/api/admin/players/bulk-update', { method: 'POST', body: { ids, changes: { status: 'active' } } });
+      toast(r.updated === 1 ? `${byId.get(ids[0]).first_name} approved — now an active player` : `${r.updated} players approved`); refresh();
+    });
+  };
+  if (group) $('#bulk-group').onclick = () => sendGroupLink(byId.get([...state.selected][0]));
   $('#bulk-edit').onclick = () => (state.selected.size === 1 ? editPlayer([...state.selected][0]) : bulkEdit([...state.selected]));
   $('#bulk-del').onclick = async () => {
     const ids = [...state.selected];
@@ -209,35 +224,9 @@ function bulkEdit(ids) {
   });
 }
 
-// Edit / Delete (and Approve for new registrations) buttons used in every player table
-function rowActions(p, { group } = {}) {
-  return `<div class="row-actions">
-    ${group ? `<button class="btn btn-sm btn-wa" data-act="group" data-id="${p.id}" title="Send the WhatsApp group link to the parent">${waIcon} Group link</button>` : ''}
-    ${p.status === 'pending' ? `<button class="btn btn-sm btn-primary" data-act="approve" data-id="${p.id}">✓ Approve</button>` : ''}
-    ${p.status !== 'inactive' ? `<button class="btn btn-sm btn-outline" style="color:var(--muted)" data-act="leave" data-id="${p.id}" data-name="${esc(p.first_name)} ${esc(p.last_name)}" title="Keep for records in the Ex-players list">🗂 Make ex-player</button>` : ''}
-    ${p.status === 'inactive' ? `<button class="btn btn-sm btn-primary" data-act="rejoin" data-id="${p.id}" data-name="${esc(p.first_name)} ${esc(p.last_name)}">↩ Re-join</button>` : ''}
-    <button class="btn btn-sm btn-outline" style="color:var(--navy)" data-act="edit" data-id="${p.id}">✎ Edit</button>
-    <button class="btn btn-sm btn-outline" style="color:var(--bad)" data-act="remove" data-id="${p.id}" data-name="${esc(p.first_name)} ${esc(p.last_name)}">Delete</button>
-  </div>`;
-}
+// Clicking a row (not its tick box) opens the player
 function bindPlayerRows(scope = view()) {
   $$('tr.clickable[data-id]', scope).forEach((tr) => tr.addEventListener('click', (e) => { if (!e.target.closest('button, a, input, .pick')) playerModal(tr.dataset.id); }));
-  $$('[data-act]', scope).forEach((b) => b.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    const id = b.dataset.id;
-    if (b.dataset.act === 'edit') return editPlayer(id);
-    if (b.dataset.act === 'remove') return removePlayer(id, b.dataset.name);
-    if (b.dataset.act === 'group') return sendGroupLink(state.rows?.get(id));
-    if (b.dataset.act === 'leave') return markLeft([id], b.dataset.name);
-    if (b.dataset.act === 'rejoin') {
-      if (!confirm(`Bring ${b.dataset.name} back as an active player?`)) return;
-      await guarded(async () => { await api(`/api/admin/players/${id}`, { method: 'PUT', body: { status: 'active', left_on: '', left_reason: '' } }); toast(`${b.dataset.name} is back in the squad`); refresh(); });
-    }
-    if (b.dataset.act === 'approve') {
-      b.disabled = true;
-      await guarded(async () => { await api(`/api/admin/players/${id}`, { method: 'PUT', body: { status: 'active' } }); toast('Approved — player is now active'); refresh(); });
-    }
-  }));
 }
 async function editPlayer(id) {
   await guarded(async () => {
@@ -281,11 +270,11 @@ async function explayers() {
         <select name="location">${locOpts(f.location, 'All centres')}</select>
         <select name="age_group">${opts(AGE_GROUPS, f.age_group, 'All ages')}</select>
       </form>
-      <div class="table-wrap"><table class="sticky-actions">
-        <thead><tr>${pickHead}<th>Player</th><th>Age</th><th>Centre</th><th>Contact</th><th>Left on</th><th>Reason</th><th class="num">Actions</th></tr></thead>
-        <tbody id="ex-rows"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      <div class="table-wrap"><table>
+        <thead><tr>${pickHead}<th>Player</th><th>Age</th><th>Centre</th><th>Contact</th><th>Left on</th><th>Reason</th></tr></thead>
+        <tbody id="ex-rows"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
       </table></div>
-      ${bulkBarHtml(true)}
+      ${bulkBarHtml({ exPage: true })}
       <div class="panel-body muted" id="ex-count" style="font-size:13px"></div>
     </div>`;
   const load = () => guarded(async () => {
@@ -301,8 +290,7 @@ async function explayers() {
       <td><div>${esc(p.guardian_phone || p.phone || '—')}</div><div class="sub">${esc(p.guardian_name || '')}</div></td>
       <td>${p.left_on ? fmtDate(p.left_on) : '—'}</td>
       <td>${esc(p.left_reason || '—')}</td>
-      <td class="num">${rowActions(p)}</td>
-    </tr>`).join('') || '<tr><td colspan="8" class="muted">No ex-players yet. Use <b>🗂 Make ex-player</b> on a player (or tick several on the Players page) when someone stops coming.</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="7" class="muted">No ex-players yet. Tick players on the Players page and choose <b>🗂 Add to Ex-players</b> when someone stops coming.</td></tr>';
     setupSelection(list, { exPage: true });
     $('#ex-count').textContent = `${list.length} ex-player${list.length === 1 ? '' : 's'}`;
     bindPlayerRows();
@@ -316,10 +304,6 @@ async function explayers() {
   load();
 }
 
-async function removePlayer(id, name) {
-  if (!confirm(`Delete ${name}? This removes their registration, details and payment records. It cannot be undone.`)) return;
-  await guarded(async () => { await api(`/api/admin/players/${id}`, { method: 'DELETE' }); toast(`${name} deleted`); refresh(); });
-}
 function playerQuery() {
   const f = { ...state.filters, period: state.period };
   return new URLSearchParams(Object.entries(f).filter(([, v]) => v)).toString();
@@ -346,11 +330,11 @@ async function registrations() {
         <select name="position">${opts(POSITIONS.map((v) => [v, POSITION_LABELS[v] || v]), f.position, 'All positions')}</select>
         <input type="search" name="q" placeholder="Search name or phone…" value="${esc(f.q || '')}" />
       </form>
-      <div class="table-wrap"><table class="reg-table sticky-actions">
-        <thead><tr>${pickHead}<th>Submitted</th><th>Player</th><th>Birth date · Age</th><th>Std</th><th>Blood</th><th>Position</th><th>Centre</th><th>Parent / guardian</th><th>Medical</th><th>Status</th><th class="num">Actions</th></tr></thead>
-        <tbody id="reg-rows"><tr><td colspan="12" class="muted">Loading…</td></tr></tbody>
+      <div class="table-wrap"><table class="reg-table">
+        <thead><tr>${pickHead}<th>Submitted</th><th>Player</th><th>Birth date · Age</th><th>Std</th><th>Blood</th><th>Position</th><th>Centre</th><th>Parent / guardian</th><th>Medical</th><th>Status</th></tr></thead>
+        <tbody id="reg-rows"><tr><td colspan="11" class="muted">Loading…</td></tr></tbody>
       </table></div>
-      ${bulkBarHtml(false)}
+      ${bulkBarHtml({ group: true })}
       <div class="panel-body muted" id="reg-count" style="font-size:13px"></div>
     </div>`;
   $('#copy-link').addEventListener('click', async () => {
@@ -374,9 +358,8 @@ async function registrations() {
       <td><div>${esc(p.guardian_name || '—')}</div><div class="sub">${esc(p.guardian_phone || p.phone || '')}</div></td>
       <td class="clip" title="${esc(p.notes || '')}">${esc(p.notes || '—')}</td>
       <td><span class="pill ${p.status}">${p.status === 'pending' ? 'new' : p.status === 'active' ? 'approved' : 'ex-player'}</span>${p.group_link_sent_at ? `<div class="sub">✓ Group link sent ${fmtDate(fromSqlUtc(p.group_link_sent_at), { day: 'numeric', month: 'short' })}</div>` : ''}</td>
-      <td class="num">${rowActions(p, { group: true })}</td>
-    </tr>`).join('') || '<tr><td colspan="12" class="muted">No registrations here yet. Share the form link with parents to get started.</td></tr>';
-    setupSelection(list);
+    </tr>`).join('') || '<tr><td colspan="11" class="muted">No registrations here yet. Share the form link with parents to get started.</td></tr>';
+    setupSelection(list, { group: true });
     $('#reg-count').textContent = `${list.length} registration${list.length === 1 ? '' : 's'}`;
     bindPlayerRows();
     updatePendingBadge();
@@ -410,11 +393,11 @@ async function players() {
         <select name="fee">${opts([['paid', 'Paid'], ['unpaid', 'Unpaid']], f.fee, 'Any fee status')}</select>
         <input type="month" name="period" value="${state.period}" title="Fee month" />
       </form>
-      <div class="table-wrap"><table class="sticky-actions">
-        <thead><tr>${pickHead}<th>Player</th><th>Age</th><th>Location</th><th>Contact</th><th>Status</th><th>Fee</th><th class="num">Actions</th></tr></thead>
-        <tbody id="player-rows"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      <div class="table-wrap"><table>
+        <thead><tr>${pickHead}<th>Player</th><th>Age</th><th>Location</th><th>Contact</th><th>Status</th><th>Fee</th></tr></thead>
+        <tbody id="player-rows"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
       </table></div>
-      ${bulkBarHtml(false)}
+      ${bulkBarHtml()}
       <div class="panel-body muted" id="player-count" style="font-size:13px"></div>
     </div>`;
   const load = () => guarded(async () => {
@@ -422,7 +405,7 @@ async function players() {
     const list = await api('/api/admin/players?' + playerQuery());
     if (stale(seq)) return;
     $('#csv').href = '/api/admin/players.csv?' + playerQuery();
-    $('#player-rows').innerHTML = list.map((p) => playerRow(p, { select: true })).join('') || '<tr><td colspan="8" class="muted">No players match these filters.</td></tr>';
+    $('#player-rows').innerHTML = list.map((p) => playerRow(p, { select: true })).join('') || '<tr><td colspan="7" class="muted">No players match these filters.</td></tr>';
     setupSelection(list);
     $('#player-count').textContent = `${list.length} player${list.length === 1 ? '' : 's'} · fee status for ${fmtMonth(state.period)}`;
     bindPlayerRows();
