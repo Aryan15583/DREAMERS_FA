@@ -427,3 +427,11 @@ td.pick input, th.pick input { width: 18px; height: 18px; cursor: pointer; }
 .bulk-bar .btn-outline { background: #fff; }
 .ex-banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; background: #eef0f4; color: var(--ink); }
 .ex-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+
+.bulk-bar .btn-light { background: #fff; color: var(--navy); }
+.bulk-bar .bulk-clear { color: #fff; border-color: rgba(255,255,255,.5); background: transparent; }
+.bulk-bar #bulk-count { margin-right: 6px; }
+/* phones: don't pin the actions column (it would cover the names); tick players and use the action bar instead */
+@media (max-width: 760px) {
+  .sticky-actions th:last-child, .sticky-actions td:last-child { position: static; box-shadow: none; }
+}
