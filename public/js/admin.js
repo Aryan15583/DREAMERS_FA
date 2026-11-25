@@ -65,6 +65,7 @@ const stale = (seq) => seq !== viewSeq;
 
 function go(v) {
   viewSeq++;
+  state.selected = new Set();
   state.view = v;
   history.replaceState(null, '', '#' + v);
   $$('.sidebar .nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
@@ -126,7 +127,7 @@ async function dashboard() {
 // ---------- players ----------
 function playerRow(p, { select } = {}) {
   return `<tr class="clickable" data-id="${p.id}">
-    ${select ? `<td class="pick">${p.status !== 'inactive' ? `<input type="checkbox" data-pick="${p.id}" aria-label="Select ${esc(p.first_name)} ${esc(p.last_name)}" ${state.selected?.has(String(p.id)) ? 'checked' : ''}>` : ''}</td>` : ''}
+    ${select ? pickCell(p) : ''}
     <td><div class="name">${esc(p.first_name)} ${esc(p.last_name)}</div><div class="sub">${[esc(p.position || '—'), p.standard ? `Std ${esc(p.standard)}` : '', p.jersey_number != null ? '#' + p.jersey_number : ''].filter(Boolean).join(' · ')}</div></td>
     <td><span class="pill group">${p.age_group}</span> <span class="sub">${p.age} yrs</span></td>
     <td>${esc(p.location_name || '—')}</td>
@@ -136,6 +137,78 @@ function playerRow(p, { select } = {}) {
     <td class="num">${rowActions(p)}</td>
   </tr>`;
 }
+// ---------- tick players, then act on them (Players, Registrations, Ex-players) ----------
+const pickCell = (p) => `<td class="pick"><input type="checkbox" data-pick="${p.id}" aria-label="Select ${esc(p.first_name)} ${esc(p.last_name)}" ${state.selected?.has(String(p.id)) ? 'checked' : ''}></td>`;
+const pickHead = '<th class="pick"><input type="checkbox" id="pick-all" aria-label="Select all"></th>';
+const bulkBarHtml = (exPage) => `<div class="bulk-bar" id="bulk-bar" hidden>
+    <b id="bulk-count"></b>
+    ${exPage ? '<button class="btn btn-sm btn-primary" id="bulk-ex">↩ Re-join</button>' : '<button class="btn btn-sm btn-primary" id="bulk-ex">🗂 Add to Ex-players</button>'}
+    <button class="btn btn-sm btn-light" id="bulk-edit">✎ Edit</button>
+    <button class="btn btn-sm btn-danger" id="bulk-del">🗑 Delete</button>
+    <button class="btn btn-sm btn-outline bulk-clear" id="bulk-clear">Clear</button>
+  </div>`;
+// Wire up the tick boxes and the action bar for the rows just drawn
+function setupSelection(list, { exPage } = {}) {
+  state.selected = new Set([...(state.selected || [])].filter((id) => list.some((p) => String(p.id) === id)));
+  const picks = $$('[data-pick]');
+  const byId = new Map(list.map((p) => [String(p.id), p]));
+  const names = () => [...state.selected].map((id) => byId.get(id)).filter(Boolean).map((p) => `${p.first_name} ${p.last_name}`);
+  const sync = () => {
+    const n = state.selected.size;
+    $('#bulk-bar').hidden = !n;
+    $('#bulk-count').textContent = n === 1 ? `${names()[0]} selected` : `${n} players selected`;
+    $('#bulk-edit').textContent = n > 1 ? `✎ Edit ${n}` : '✎ Edit';
+    $('#pick-all').checked = picks.length > 0 && picks.every((c) => c.checked);
+    $('#pick-all').indeterminate = n > 0 && !$('#pick-all').checked;
+  };
+  picks.forEach((c) => c.addEventListener('change', () => { c.checked ? state.selected.add(c.dataset.pick) : state.selected.delete(c.dataset.pick); sync(); }));
+  $('#pick-all').onchange = (e) => { picks.forEach((c) => { c.checked = e.target.checked; c.checked ? state.selected.add(c.dataset.pick) : state.selected.delete(c.dataset.pick); }); sync(); };
+  $('#bulk-clear').onclick = () => { state.selected.clear(); picks.forEach((c) => { c.checked = false; }); sync(); };
+  $('#bulk-ex').onclick = async () => {
+    const ids = [...state.selected];
+    if (!exPage) return markLeft(ids, names()[0] || '');
+    if (!confirm(`Bring ${ids.length === 1 ? names()[0] : ids.length + ' players'} back as active?`)) return;
+    await guarded(async () => {
+      const r = await api('/api/admin/players/bulk-update', { method: 'POST', body: { ids, changes: { status: 'active' } } });
+      toast(r.updated === 1 ? `${names()[0]} is back in the squad` : `${r.updated} players are back in the squad`); refresh();
+    });
+  };
+  $('#bulk-edit').onclick = () => (state.selected.size === 1 ? editPlayer([...state.selected][0]) : bulkEdit([...state.selected]));
+  $('#bulk-del').onclick = async () => {
+    const ids = [...state.selected];
+    const who = ids.length === 1 ? names()[0] : `${ids.length} players`;
+    if (!confirm(`Delete ${who}? This removes their details and payment records for good.\n\nTip: use “Add to Ex-players” instead to keep them for your records.`)) return;
+    await guarded(async () => {
+      const r = await api('/api/admin/players/bulk-delete', { method: 'POST', body: { ids } });
+      toast(r.deleted === 1 ? `${who} deleted` : `${r.deleted} players deleted`); refresh();
+    });
+  };
+  sync();
+}
+// Change centre / status / position / standard for several players at once
+function bulkEdit(ids) {
+  const keep = 'Keep as is';
+  openModal(`Edit ${ids.length} players`, `<form id="bulk-form" style="display:grid;gap:14px">
+    <p class="muted" style="margin:0">Choose only what you want to change. Everything left on <b>${keep}</b> stays the same for each player.</p>
+    <div id="bulk-alert"></div>
+    <div class="grid">
+      <label>Centre<select name="location_id">${locOpts('', keep)}</select></label>
+      <label>Status<select name="status">${opts([['active', 'Active'], ['pending', 'New (waiting for approval)'], ['inactive', 'Ex-player']], '', keep)}</select></label>
+      <label>Position<select name="position">${opts(POSITIONS.map((v) => [v, POSITION_LABELS[v] || v]), '', keep)}</select></label>
+      <label>Standard (class)<select name="standard">${opts(STANDARDS, '', keep)}</select></label>
+    </div>
+    <div class="modal-foot"><span></span><button class="btn btn-primary">Save changes for ${ids.length} players</button></div>
+  </form>`);
+  $('#bulk-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const changes = Object.fromEntries(Object.entries(formData(e.target)).filter(([, v]) => v));
+    try {
+      const r = await api('/api/admin/players/bulk-update', { method: 'POST', body: { ids, changes } });
+      closeModal(); toast(`${r.updated} players updated`); refresh();
+    } catch (err) { $('#bulk-alert').innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`; }
+  });
+}
+
 // Edit / Delete (and Approve for new registrations) buttons used in every player table
 function rowActions(p, { group } = {}) {
   return `<div class="row-actions">
@@ -209,9 +282,10 @@ async function explayers() {
         <select name="age_group">${opts(AGE_GROUPS, f.age_group, 'All ages')}</select>
       </form>
       <div class="table-wrap"><table class="sticky-actions">
-        <thead><tr><th>Player</th><th>Age</th><th>Centre</th><th>Contact</th><th>Left on</th><th>Reason</th><th class="num">Actions</th></tr></thead>
-        <tbody id="ex-rows"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+        <thead><tr>${pickHead}<th>Player</th><th>Age</th><th>Centre</th><th>Contact</th><th>Left on</th><th>Reason</th><th class="num">Actions</th></tr></thead>
+        <tbody id="ex-rows"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
       </table></div>
+      ${bulkBarHtml(true)}
       <div class="panel-body muted" id="ex-count" style="font-size:13px"></div>
     </div>`;
   const load = () => guarded(async () => {
@@ -220,7 +294,7 @@ async function explayers() {
     const list = (await api('/api/admin/players?' + q)).sort((a, b) => (b.left_on || '').localeCompare(a.left_on || ''));
     if (stale(seq)) return;
     $('#ex-csv').href = '/api/admin/players.csv?' + q;
-    $('#ex-rows').innerHTML = list.map((p) => `<tr class="clickable" data-id="${p.id}">
+    $('#ex-rows').innerHTML = list.map((p) => `<tr class="clickable" data-id="${p.id}">${pickCell(p)}
       <td><div class="name">${esc(p.first_name)} ${esc(p.last_name)}</div><div class="sub">${esc(p.position || '')}${p.standard ? ' · Std ' + esc(p.standard) : ''}</div></td>
       <td><span class="pill group">${p.age_group}</span> <span class="sub">${p.age} yrs</span></td>
       <td>${esc(p.location_name || '—')}</td>
@@ -228,7 +302,8 @@ async function explayers() {
       <td>${p.left_on ? fmtDate(p.left_on) : '—'}</td>
       <td>${esc(p.left_reason || '—')}</td>
       <td class="num">${rowActions(p)}</td>
-    </tr>`).join('') || '<tr><td colspan="7" class="muted">No ex-players yet. Use <b>🗂 Make ex-player</b> on a player (or tick several on the Players page) when someone stops coming.</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="8" class="muted">No ex-players yet. Use <b>🗂 Make ex-player</b> on a player (or tick several on the Players page) when someone stops coming.</td></tr>';
+    setupSelection(list, { exPage: true });
     $('#ex-count').textContent = `${list.length} ex-player${list.length === 1 ? '' : 's'}`;
     bindPlayerRows();
   });
@@ -272,9 +347,10 @@ async function registrations() {
         <input type="search" name="q" placeholder="Search name or phone…" value="${esc(f.q || '')}" />
       </form>
       <div class="table-wrap"><table class="reg-table sticky-actions">
-        <thead><tr><th>Submitted</th><th>Player</th><th>Birth date · Age</th><th>Std</th><th>Blood</th><th>Position</th><th>Centre</th><th>Parent / guardian</th><th>Medical</th><th>Status</th><th class="num">Actions</th></tr></thead>
-        <tbody id="reg-rows"><tr><td colspan="11" class="muted">Loading…</td></tr></tbody>
+        <thead><tr>${pickHead}<th>Submitted</th><th>Player</th><th>Birth date · Age</th><th>Std</th><th>Blood</th><th>Position</th><th>Centre</th><th>Parent / guardian</th><th>Medical</th><th>Status</th><th class="num">Actions</th></tr></thead>
+        <tbody id="reg-rows"><tr><td colspan="12" class="muted">Loading…</td></tr></tbody>
       </table></div>
+      ${bulkBarHtml(false)}
       <div class="panel-body muted" id="reg-count" style="font-size:13px"></div>
     </div>`;
   $('#copy-link').addEventListener('click', async () => {
@@ -287,7 +363,7 @@ async function registrations() {
     if (stale(seq)) return;
     $('#reg-csv').href = '/api/admin/players.csv?' + q;
     state.rows = new Map(list.map((p) => [String(p.id), p]));
-    $('#reg-rows').innerHTML = list.map((p) => `<tr class="clickable" data-id="${p.id}">
+    $('#reg-rows').innerHTML = list.map((p) => `<tr class="clickable" data-id="${p.id}">${pickCell(p)}
       <td><div>${fmtDate(fromSqlUtc(p.created_at), { day: 'numeric', month: 'short' })}</div><div class="sub">${fromSqlUtc(p.created_at).toLocaleTimeString(CLUB.locale, { hour: 'numeric', minute: '2-digit', hour12: true }).toUpperCase()}</div></td>
       <td><div class="name">${esc(p.first_name)} ${esc(p.last_name)}</div><div class="sub">${esc(p.gender || '')}</div></td>
       <td><div>${fmtDate(p.dob)}</div><div class="sub">${p.age} yrs · ${p.age_group}</div></td>
@@ -299,7 +375,8 @@ async function registrations() {
       <td class="clip" title="${esc(p.notes || '')}">${esc(p.notes || '—')}</td>
       <td><span class="pill ${p.status}">${p.status === 'pending' ? 'new' : p.status === 'active' ? 'approved' : 'ex-player'}</span>${p.group_link_sent_at ? `<div class="sub">✓ Group link sent ${fmtDate(fromSqlUtc(p.group_link_sent_at), { day: 'numeric', month: 'short' })}</div>` : ''}</td>
       <td class="num">${rowActions(p, { group: true })}</td>
-    </tr>`).join('') || '<tr><td colspan="11" class="muted">No registrations here yet. Share the form link with parents to get started.</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="12" class="muted">No registrations here yet. Share the form link with parents to get started.</td></tr>';
+    setupSelection(list);
     $('#reg-count').textContent = `${list.length} registration${list.length === 1 ? '' : 's'}`;
     bindPlayerRows();
     updatePendingBadge();
@@ -334,14 +411,10 @@ async function players() {
         <input type="month" name="period" value="${state.period}" title="Fee month" />
       </form>
       <div class="table-wrap"><table class="sticky-actions">
-        <thead><tr><th class="pick"><input type="checkbox" id="pick-all" aria-label="Select all"></th><th>Player</th><th>Age</th><th>Location</th><th>Contact</th><th>Status</th><th>Fee</th><th class="num">Actions</th></tr></thead>
+        <thead><tr>${pickHead}<th>Player</th><th>Age</th><th>Location</th><th>Contact</th><th>Status</th><th>Fee</th><th class="num">Actions</th></tr></thead>
         <tbody id="player-rows"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
       </table></div>
-      <div class="bulk-bar" id="bulk-bar" hidden>
-        <b id="bulk-count"></b>
-        <button class="btn btn-sm btn-primary" id="bulk-ex">🗂 Make ex-players</button>
-        <button class="btn btn-sm btn-outline" style="color:var(--navy)" id="bulk-clear">Clear selection</button>
-      </div>
+      ${bulkBarHtml(false)}
       <div class="panel-body muted" id="player-count" style="font-size:13px"></div>
     </div>`;
   const load = () => guarded(async () => {
@@ -349,21 +422,8 @@ async function players() {
     const list = await api('/api/admin/players?' + playerQuery());
     if (stale(seq)) return;
     $('#csv').href = '/api/admin/players.csv?' + playerQuery();
-    state.selected = new Set([...(state.selected || [])].filter((id) => list.some((p) => String(p.id) === id && p.status !== 'inactive')));
     $('#player-rows').innerHTML = list.map((p) => playerRow(p, { select: true })).join('') || '<tr><td colspan="8" class="muted">No players match these filters.</td></tr>';
-    const picks = $$('[data-pick]');
-    const sync = () => {
-      const n = state.selected.size;
-      $('#bulk-bar').hidden = !n;
-      $('#bulk-count').textContent = `${n} selected`;
-      $('#pick-all').checked = picks.length > 0 && picks.every((c) => c.checked);
-      $('#pick-all').indeterminate = n > 0 && !$('#pick-all').checked;
-    };
-    picks.forEach((c) => c.addEventListener('change', () => { c.checked ? state.selected.add(c.dataset.pick) : state.selected.delete(c.dataset.pick); sync(); }));
-    $('#pick-all').onchange = (e) => { picks.forEach((c) => { c.checked = e.target.checked; c.checked ? state.selected.add(c.dataset.pick) : state.selected.delete(c.dataset.pick); }); sync(); };
-    $('#bulk-ex').onclick = () => markLeft([...state.selected], '');
-    $('#bulk-clear').onclick = () => { state.selected.clear(); picks.forEach((c) => { c.checked = false; }); sync(); };
-    sync();
+    setupSelection(list);
     $('#player-count').textContent = `${list.length} player${list.length === 1 ? '' : 's'} · fee status for ${fmtMonth(state.period)}`;
     bindPlayerRows();
     updatePendingBadge();

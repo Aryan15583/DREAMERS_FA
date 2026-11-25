@@ -424,6 +424,57 @@ admin.post('/players', wrap(async (req, res) => {
   res.json({ ok: true, id: r.lastInsertRowid });
 }));
 
+// ids sent for actions on several players at once
+function readIds(body) {
+  const ids = [...new Set((Array.isArray(body?.ids) ? body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  return ids.length && ids.length <= 500 ? ids : null;
+}
+
+// Change the same details for several players: { ids, changes: { location_id, status, position, standard } }
+admin.post('/players/bulk-update', wrap(async (req, res) => {
+  const ids = readIds(req.body);
+  if (!ids) return res.status(400).json({ error: 'Choose between 1 and 500 players' });
+  const c = req.body.changes || {};
+  const sets = [], args = [];
+  const today = new Date().toISOString().slice(0, 10);
+  if (c.location_id != null && c.location_id !== '') {
+    const loc = num(c.location_id);
+    if (!loc || !(await db.get('SELECT 1 AS x FROM locations WHERE id = ?', loc))) return res.status(400).json({ error: 'Choose a valid centre' });
+    sets.push('location_id = ?'); args.push(loc);
+  }
+  if (c.position) {
+    if (!POSITIONS.includes(c.position)) return res.status(400).json({ error: 'Choose a position from the list' });
+    sets.push('position = ?'); args.push(c.position);
+  }
+  if (c.standard) {
+    if (!STANDARDS.includes(c.standard)) return res.status(400).json({ error: 'Choose a standard from the list' });
+    sets.push('standard = ?'); args.push(c.standard);
+  }
+  if (c.status) {
+    if (!['active', 'pending', 'inactive'].includes(c.status)) return res.status(400).json({ error: 'Choose a valid status' });
+    sets.push('status = ?'); args.push(c.status);
+    if (c.status === 'inactive') { sets.push('left_on = COALESCE(left_on, ?)'); args.push(today); }
+    else sets.push('left_on = NULL', 'left_reason = NULL');
+    if (c.status === 'active') { sets.push('joined_on = COALESCE(joined_on, ?)'); args.push(today); }
+  }
+  if (!sets.length) return res.status(400).json({ error: 'Choose at least one thing to change' });
+  const r = await db.run(`UPDATE players SET ${sets.join(', ')} WHERE id IN (${ids.map(() => '?').join(',')})`, ...args, ...ids);
+  res.json({ ok: true, updated: r.changes });
+}));
+
+// Delete several players with their payments and reminders
+admin.post('/players/bulk-delete', wrap(async (req, res) => {
+  const ids = readIds(req.body);
+  if (!ids) return res.status(400).json({ error: 'Choose between 1 and 500 players' });
+  const marks = ids.map(() => '?').join(',');
+  const results = await db.batch([
+    [`DELETE FROM payments WHERE player_id IN (${marks})`, ...ids],
+    [`DELETE FROM reminders WHERE player_id IN (${marks})`, ...ids],
+    [`DELETE FROM players WHERE id IN (${marks})`, ...ids],
+  ]);
+  res.json({ ok: true, deleted: results[2].rowsAffected });
+}));
+
 // Move players to Ex-players (kept for records): { ids: [..], left_on, left_reason }
 admin.post('/players/move-to-ex', wrap(async (req, res) => {
   const ids = [...new Set((Array.isArray(req.body.ids) ? req.body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
